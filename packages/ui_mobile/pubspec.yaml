@@ -1,0 +1,27 @@
+name: ui_mobile
+description: SM GUI 移动端 UI（Flutter / Android）：首页/节点/日志/设置 四页与各弹层。
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  sm_core:
+    path: ../core
+  sm_engine:
+    path: ../core_engine
+  ui_kit:
+    path: ../ui_kit
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

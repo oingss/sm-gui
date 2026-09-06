@@ -1,0 +1,10 @@
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+
+# libbox AAR 由 CI 从 sing-box 源码构建（apps/mobile/android/app/libs/）
+apps/mobile/android/app/libs/*.aar

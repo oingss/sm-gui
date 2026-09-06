@@ -1,0 +1,22 @@
+name: sm_core
+description: >-
+  SM GUI 共享核心包（纯 Dart）：节点模型与协议解析、订阅格式解析、
+  sing-box/mihomo 配置合成、领域服务。不依赖 Flutter，可在 VM 测试，
+  供桌面 UI 与移动 UI 两套包共同复用。
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  yaml: ^3.1.2
+  yaml_writer: ^2.0.0
+  riverpod: ^2.6.1
+  sm_engine:
+    path: ../core_engine
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
