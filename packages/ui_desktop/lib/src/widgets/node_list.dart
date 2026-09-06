@@ -51,7 +51,8 @@ class _NodeMeta {
         vl?.transport?.type ??
         tr?.transport?.type ??
         '';
-    var tls = vm?.tls ?? vl?.tls ?? tr?.tls ?? false;
+    // TrojanConfig 无 tls 字段（trojan 恒为 TLS，由下方强制 TLS 列表覆盖）
+    var tls = vm?.tls ?? vl?.tls ?? false;
     var reality = (vl?.publicKey.isNotEmpty ?? false);
     var ech = [
       vm?.echConfig,
