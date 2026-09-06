@@ -18,6 +18,7 @@ final smAppProvider = Provider<SmApp>((ref) {
 // ─── 设置 ────────────────────────────────────────────────────────────────────
 
 /// 设置版本号：Settings 是可变对象，字段变化后 bump 触发依赖刷新。
+/// bump 时同步读取最新的 appliedNodeID，让 appliedIdProvider 能即时刷新。
 class SettingsVersion extends Notifier<int> {
   @override
   int build() => 0;
@@ -29,9 +30,21 @@ final settingsVersionProvider =
     NotifierProvider<SettingsVersion, int>(SettingsVersion.new);
 
 /// 当前设置（读取 + 版本联动）。
+/// 注意：Settings 是可变对象，ref.watch(settingsProvider) 的引用不变，
+/// 下游若直接比较对象引用则不会感知字段变化。
+/// 对于需要即时刷新的字段（如 appliedNodeID），请使用各自独立的派生 Provider。
 final settingsProvider = Provider<Settings>((ref) {
   ref.watch(settingsVersionProvider);
   return ref.watch(smAppProvider).settings;
+});
+
+/// 当前应用的节点 ID（直接暴露为字符串值，而非从可变 Settings 对象派生）。
+/// Riverpod 对 String 做值相等比较，bump 后能正确触发 UI 刷新。
+final appliedIdProvider = Provider<String>((ref) {
+  // 必须 watch settingsVersionProvider，使 bump() 能让本 Provider 重建；
+  // 返回的是 String 值，Riverpod 通过 == 判断是否真的变化，会正确通知下游。
+  ref.watch(settingsVersionProvider);
+  return ref.watch(smAppProvider).settings.appliedNodeID;
 });
 
 // ─── 节点 / 分组 / 配置文件 ─────────────────────────────────────────────────
@@ -142,10 +155,6 @@ final sysProxyProvider =
 /// TUN 开关（读自 settings.tunEnabled，与设置版本联动）。
 final tunEnabledProvider = Provider<bool>(
     (ref) => ref.watch(settingsProvider).tunEnabled);
-
-/// 当前应用的节点 ID。
-final appliedIdProvider =
-    Provider<String>((ref) => ref.watch(settingsProvider).appliedNodeID);
 
 /// 当前应用的节点对象（可能为 null）。
 final appliedNodeProvider = Provider<Node?>((ref) {
