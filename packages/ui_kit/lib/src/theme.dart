@@ -1,17 +1,21 @@
-/// 深色主题（Material 3）— 对齐原 React 版的视觉基调。
+/// 浅色主题（Material 3）— 对齐 Go 版 React 前端的视觉基调
+/// （index.css :root 浅色令牌）。
 library;
 
 import 'package:flutter/material.dart';
 
 import 'palette.dart';
 
-/// 构建 SM GUI 桌面深色主题。
+/// 构建 SM GUI 桌面浅色主题。
 ThemeData buildSmTheme() {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: SmPalette.accent,
-    brightness: Brightness.dark,
+  const scheme = ColorScheme.light(
     primary: SmPalette.accent,
+    onPrimary: Colors.white,
     surface: SmPalette.bgPanel,
+    onSurface: SmPalette.text,
+    surfaceContainerHighest: SmPalette.bgInput,
+    outline: SmPalette.border,
+    error: SmPalette.red,
   );
   return ThemeData(
     useMaterial3: true,
@@ -21,15 +25,14 @@ ThemeData buildSmTheme() {
     fontFamily: 'Microsoft YaHei UI',
     textTheme: const TextTheme(
       bodyMedium: TextStyle(color: SmPalette.text, fontSize: 13),
-      bodySmall: TextStyle(color: SmPalette.textDim, fontSize: 12),
+      bodySmall: TextStyle(color: SmPalette.textMid, fontSize: 12),
       titleMedium: TextStyle(color: SmPalette.text, fontSize: 14),
     ),
     dividerColor: SmPalette.border,
     splashFactory: InkSparkle.splashFactory,
     dropdownMenuTheme: DropdownMenuThemeData(
       menuStyle: MenuStyle(
-        backgroundColor:
-            WidgetStatePropertyAll(SmPalette.bgInput),
+        backgroundColor: const WidgetStatePropertyAll(SmPalette.bgPanel),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         side: const WidgetStatePropertyAll(
           BorderSide(color: SmPalette.border),
@@ -39,19 +42,19 @@ ThemeData buildSmTheme() {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: SmPalette.bgInput,
-      hintStyle: const TextStyle(color: SmPalette.textDim),
+      hintStyle: const TextStyle(color: SmPalette.textFaint),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: SmPalette.border),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: SmPalette.border),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: SmPalette.accent),
       ),
       isDense: true,
@@ -67,7 +70,7 @@ ThemeData buildSmTheme() {
       trackColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
             ? SmPalette.accent
-            : SmPalette.bgInput,
+            : SmPalette.bgHover,
       ),
       thumbColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
@@ -84,15 +87,23 @@ ThemeData buildSmTheme() {
       side: const BorderSide(color: SmPalette.textDim),
     ),
     tooltipTheme: const TooltipThemeData(
-      decoration: BoxDecoration(color: SmPalette.bgInput),
-      textStyle: TextStyle(color: SmPalette.text, fontSize: 12),
+      decoration: BoxDecoration(color: SmPalette.text),
+      textStyle: TextStyle(color: SmPalette.bgPanel, fontSize: 12),
       waitDuration: Duration(milliseconds: 400),
     ),
     dialogTheme: const DialogThemeData(
       backgroundColor: SmPalette.bgPanel,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(10)),
+        borderRadius: BorderRadius.all(Radius.circular(14)),
+        side: BorderSide(color: SmPalette.border),
+      ),
+    ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: SmPalette.bgPanel,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
         side: BorderSide(color: SmPalette.border),
       ),
     ),

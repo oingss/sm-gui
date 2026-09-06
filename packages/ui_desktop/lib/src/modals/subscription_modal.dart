@@ -1,5 +1,5 @@
-/// 订阅管理弹窗 — 已有订阅（订阅分组）列表：编辑 / 更新；新增订阅：
-/// 名称 / URL / 自动更新 / 间隔。
+/// 订阅管理弹窗 — 对齐 Go 版 SubscriptionModal.jsx：
+/// 已添加的订阅列表（移除）+ 拉取新订阅（成功后自动新建「订阅N」分组）。
 library;
 
 import 'package:flutter/material.dart';
@@ -8,7 +8,6 @@ import 'package:sm_core/sm_core.dart';
 import 'package:ui_kit/ui_kit.dart';
 
 import '../actions.dart';
-import 'group_edit_modal.dart';
 import '../providers.dart';
 
 class SubscriptionModal extends ConsumerStatefulWidget {
@@ -19,69 +18,48 @@ class SubscriptionModal extends ConsumerStatefulWidget {
 }
 
 class _SubscriptionModalState extends ConsumerState<SubscriptionModal> {
-  final _name = TextEditingController();
   final _url = TextEditingController();
-  bool _autoUpdate = false;
-  final _interval = TextEditingController(text: '24');
   bool _loading = false;
 
   @override
   void dispose() {
-    _name.dispose();
     _url.dispose();
-    _interval.dispose();
     super.dispose();
   }
 
-  Future<void> _add() async {
-    if (_loading || _url.text.trim().isEmpty) return;
+  /// 拉取订阅（成功 → 新建「订阅N」分组并切换到该分组）。
+  Future<void> _fetch() async {
+    final url = _url.text.trim();
+    if (url.isEmpty || _loading) return;
     final app = ref.read(smAppProvider);
     setState(() => _loading = true);
     final ok = await runAction(context, () async {
-      await app.addSubscription(
-        name: _name.text.trim().isEmpty ? '订阅' : _name.text.trim(),
-        url: _url.text.trim(),
-        autoUpdate: _autoUpdate,
-        updateIntervalHours: int.tryParse(_interval.text) ?? 10,
-      );
+      final res = await app.fetchSubscriptionAsGroup(url);
       if (mounted) {
-        AppToast.show(context, '订阅已添加', ToastType.success);
-      }
-    }, failurePrefix: '添加订阅失败');
-    if (ok && mounted) Navigator.of(context).pop();
-    if (mounted) setState(() => _loading = false);
-    await ref.read(groupsProvider.notifier).reload();
-    await ref.read(nodesProvider.notifier).reload();
-  }
-
-  Future<void> _refresh(Group g) async {
-    final app = ref.read(smAppProvider);
-    final ok = await runAction(context, () async {
-      final count = await app.refreshGroupSubscription(g.id);
-      if (mounted) {
-        AppToast.show(context, '订阅「${g.name}」更新成功，共 $count 个节点',
+        AppToast.show(context,
+            '订阅拉取成功，新建分组「${res.$1.name}」，共 ${res.$2} 个节点',
             ToastType.success);
       }
-    }, failurePrefix: '订阅更新失败');
-    if (ok) {
-      await ref.read(nodesProvider.notifier).reload();
-      await ref.read(groupsProvider.notifier).reload();
-    }
+      // 拉取成功 → 激活新建的订阅分组
+      ref.read(activeGroupIdProvider.notifier).set(res.$1.id);
+    }, failurePrefix: '订阅拉取失败');
+    if (ok && mounted) Navigator.of(context).pop();
+    if (mounted) setState(() => _loading = false);
+    await ref.read(nodesProvider.notifier).reload();
+    await ref.read(groupsProvider.notifier).reload();
+    ref.read(settingsVersionProvider.notifier).bump();
   }
 
-  Future<void> _edit(Group g) {
-    return AppModal.show<void>(
-      context,
-      title: '编辑订阅 — ${g.name}',
-      width: 460,
-      builder: (_) => GroupEditModal(group: g),
-    );
+  Future<void> _remove(String subUrl) async {
+    ref.read(smAppProvider).removeSubscription(subUrl);
+    if (mounted) Navigator.of(context).pop();
+    ref.read(settingsVersionProvider.notifier).bump();
   }
 
   @override
   Widget build(BuildContext context) {
-    final groups = ref.watch(groupsProvider).valueOrNull ?? const [];
-    final subs = groups.where((g) => g.subUrl.isNotEmpty).toList();
+    final subs =
+        ref.watch(settingsProvider).subscriptions ?? const <String>[];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -91,7 +69,7 @@ class _SubscriptionModalState extends ConsumerState<SubscriptionModal> {
           const Text('已添加的订阅',
               style: TextStyle(color: SmPalette.textDim, fontSize: 12)),
           const SizedBox(height: 6),
-          for (final g in subs)
+          for (final sub in subs)
             Container(
               margin: const EdgeInsets.only(bottom: 6),
               padding:
@@ -104,83 +82,43 @@ class _SubscriptionModalState extends ConsumerState<SubscriptionModal> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(g.name,
-                            style: const TextStyle(
-                                color: SmPalette.text, fontSize: 12)),
-                        Text(g.subUrl,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: SmPalette.textDim, fontSize: 11)),
-                      ],
+                    child: Text(sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: SmPalette.textMid,
+                            fontSize: 11,
+                            fontFamily: 'Consolas')),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _loading ? null : () => _remove(sub),
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.do_not_disturb_on_outlined,
+                          size: 15, color: SmPalette.red),
                     ),
-                  ),
-                  Text('更新于 ${formatLastUpdate(g.lastUpdate)}',
-                      style: const TextStyle(
-                          color: SmPalette.textDim, fontSize: 11)),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: '更新订阅',
-                    icon: const Icon(Icons.refresh,
-                        size: 16, color: SmPalette.accent),
-                    onPressed: () => _refresh(g),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: '编辑',
-                    icon: const Icon(Icons.edit_outlined,
-                        size: 16, color: SmPalette.textDim),
-                    onPressed: () => _edit(g),
                   ),
                 ],
               ),
             ),
-          const Divider(color: SmPalette.border),
+          const SizedBox(height: 4),
         ],
-        const Text('添加新订阅',
+        const Text('添加新订阅地址',
             style: TextStyle(color: SmPalette.textDim, fontSize: 12)),
-        const ModalFieldLabel('订阅名称'),
-        TextField(
-          controller: _name,
-          decoration: const InputDecoration(hintText: '留空则命名为「订阅」'),
-        ),
-        const ModalFieldLabel('订阅链接'),
+        const SizedBox(height: 6),
         TextField(
           controller: _url,
           autofocus: true,
-          decoration:
-              const InputDecoration(hintText: 'https://your-subscription-url...'),
+          onSubmitted: (_) => _fetch(),
+          decoration: const InputDecoration(
+              hintText: 'https://your-subscription-url...'),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: Checkbox(
-                value: _autoUpdate,
-                onChanged: (v) => setState(() => _autoUpdate = v ?? false),
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text('自动更新',
-                style: TextStyle(color: SmPalette.text, fontSize: 12)),
-            const SizedBox(width: 16),
-            const Text('间隔（小时）',
-                style: TextStyle(color: SmPalette.textDim, fontSize: 12)),
-            const SizedBox(width: 6),
-            SizedBox(
-              width: 70,
-              child: TextField(
-                controller: _interval,
-                enabled: _autoUpdate,
-                keyboardType: TextInputType.number,
-              ),
-            ),
-          ],
+        const Text(
+          '拉取成功后将自动新建「订阅N」分组并放入节点；更新请使用分组右键菜单中的「更新」',
+          style: TextStyle(color: SmPalette.textDim, fontSize: 11),
         ),
         const SizedBox(height: 12),
         Row(
@@ -188,12 +126,12 @@ class _SubscriptionModalState extends ConsumerState<SubscriptionModal> {
           children: [
             ModalButton(
               label: '关闭',
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: _loading ? null : () => Navigator.of(context).pop(),
             ),
             ModalButton(
-              label: _loading ? '拉取中…' : '添加订阅',
+              label: _loading ? '拉取中…' : '拉取订阅',
               primary: true,
-              onPressed: _url.text.trim().isEmpty || _loading ? null : _add,
+              onPressed: _url.text.trim().isEmpty || _loading ? null : _fetch,
             ),
           ],
         ),

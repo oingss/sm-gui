@@ -13,6 +13,7 @@ import '../config/builtin.dart';
 import '../config/editor.dart' hide coreMihomo, coreSingBox;
 import '../config/settings.dart';
 import '../config/settings_manager.dart';
+import '../export/node_export.dart' show nodeToUri;
 import '../models/group.dart';
 import '../models/node.dart';
 import '../parsing/content.dart';
@@ -390,21 +391,27 @@ class SmApp {
 
   // ─── 配置文件管理（configs 目录）───────────────────────────────────────────
 
+  /// 对齐 Go: GetConfigFiles — 按当前内核过滤扩展名（sing-box → .json；
+  /// mihomo → .yaml/.yml），按名称排序，末尾追加内置路由配置项
+  /// （内置配置：绕过大陆 / GFW列表 / 全局代理）。
   Future<List<String>> listConfigFiles() async {
     final dir = Directory(configsDir);
-    if (!await dir.exists()) return [];
+    if (!await dir.exists()) return builtinDisplayNames();
+    final match = settings.core == coreMihomo
+        ? const ['.yaml', '.yml']
+        : const ['.json'];
     final names = <String>[];
     await for (final e in dir.list()) {
       if (e is File) {
-        final ext = e.path.toLowerCase();
-        if (ext.endsWith('.json') ||
-            ext.endsWith('.yaml') ||
-            ext.endsWith('.yml')) {
+        final lower = e.path.toLowerCase();
+        if (match.any(lower.endsWith)) {
           names.add(e.path.split(Platform.pathSeparator).last);
         }
       }
     }
     names.sort();
+    // 末尾追加内置路由配置项
+    names.addAll(builtinDisplayNames());
     return names;
   }
 
@@ -424,19 +431,108 @@ class SmApp {
     if (await f.exists()) await f.delete();
   }
 
-  Future<void> selectConfigFile(String name) async {
-    final s = settings;
-    s.setCoreConfigPath(s.core, name);
-    cfgManager.save();
-    // 配置文件变化后重新应用记忆的节点
-    if (!isBuiltinMode(s.routingMode)) {
-      final n =
-          s.appliedNodeID.isEmpty ? null : store.get(s.appliedNodeID);
-      if (n != null) {
-        applyNodeToConfig(s.core, _join(configsDir, name), n);
-      }
+  /// 对齐 Go: SelectConfigFile — 支持内置路由配置项（切 RoutingMode），
+  /// 真实文件则校验扩展名并走「停核心 → 换配置 → 重建节点/inbound/tun →
+  /// 复制到 run → 拉起核心」编排。返回当前生效的显示名。
+  Future<String> selectConfigFile(String name) async {
+    // 内置路由配置项：切换 RoutingMode，不涉及用户配置文件
+    final mode = parseBuiltinName(name);
+    if (mode != null) return selectBuiltinRouting(mode);
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw AppException('未指定配置文件');
+    // 安全检查: 只允许纯文件名, 禁止路径穿越
+    if (trimmed.contains('/') ||
+        trimmed.contains('\\') ||
+        trimmed.contains('..')) {
+      throw AppException('非法文件名: $trimmed');
     }
-    await restartIfRunning();
+    final full = _join(configsDir, trimmed);
+    if (!await File(full).exists()) {
+      throw AppException('配置文件不存在: $trimmed');
+    }
+    final s = settings;
+    final core = s.core;
+    // 扩展名必须与当前内核匹配
+    final ext = trimmed.toLowerCase().contains('.')
+        ? trimmed.substring(trimmed.lastIndexOf('.')).toLowerCase()
+        : '';
+    if (core == coreMihomo) {
+      if (ext != '.yaml' && ext != '.yml') {
+        throw AppException(
+            'mihomo 内核需要 yaml 配置文件（.yaml/.yml），不支持: $trimmed');
+      }
+    } else if (ext != '.json') {
+      throw AppException('sing-box 内核需要 json 配置文件（.json），不支持: $trimmed');
+    }
+
+    // ── 切换编排：停核心 → 换配置 → 重建节点/inbound/tun → 复制到 run → 拉起核心 ──
+    final wasRunning = coreRunning;
+    // 切换前探测旧状态（TUN 看持久化开关；系统代理看注册表）
+    final tunWasOn = s.tunEnabled;
+    final proxyWasOn = await proxy.isEnabled();
+
+    if (wasRunning) await stopCore();
+
+    // 选真实配置文件 = 路由回到 custom 模式
+    s.routingMode = modeCustom;
+    s.setCoreConfigPath(core, trimmed);
+    cfgManager.save();
+
+    // 重新应用节点（如果之前有应用过的节点）
+    if (s.appliedNodeID.isNotEmpty) {
+      final n = store.get(s.appliedNodeID);
+      if (n != null) applyNodeToConfig(core, full, n);
+    }
+
+    // 系统代理开着则重建 mixed inbound / mixed-port 并重设注册表（端口可能已变）
+    if (proxyWasOn) {
+      setMixedInbound(core, full, true, s.proxyListen, s.proxyPort);
+      await proxy.enable('127.0.0.1', s.proxyPort);
+    }
+
+    // TUN 开着则重建 TUN 配置
+    if (tunWasOn) {
+      setTun(core, full, true, s.tunStack, s.tunMTU, s.tunStrictRoute);
+    }
+
+    // 复制到 run 目录（先清除旧配置，保证只有一个当前内核的配置文件）
+    await syncRunConfig(core, full);
+
+    // 切换前核心在跑则重新拉起
+    if (wasRunning) await startCore();
+    return trimmed;
+  }
+
+  /// 对齐 Go: selectBuiltinRouting — 切换到内置路由模式
+  /// （bypass / blacklist / global）。用户 configs/ 配置文件与其各内核记忆
+  /// 路径不动；已应用节点才立即合成 run 配置，核心在跑则重启。
+  Future<String> selectBuiltinRouting(String mode) async {
+    final s = settings;
+    final core = s.core;
+    // 前置校验：规则文件（与节点无关，缺失早提示）
+    checkRuleFiles(mode, s.builtin.dnsMode, rulesDir);
+    final wasRunning = coreRunning;
+    if (wasRunning) await stopCore();
+    s.routingMode = mode;
+    cfgManager.save();
+    // 系统代理开着：先设注册表再合成（合成时按注册表状态写入 mixed inbound）
+    if (await proxy.isEnabled()) {
+      await proxy.enable('127.0.0.1', s.proxyPort);
+    }
+    // 已应用节点才立即合成；未应用则等 ApplyNode / 启动核心时合成
+    if (s.appliedNodeID.isNotEmpty && store.get(s.appliedNodeID) != null) {
+      await syncRunConfig(core, '');
+    }
+    if (wasRunning) await startCore();
+    return builtinDisplayName(mode) ?? mode;
+  }
+
+  /// 打开 configs 目录（Windows 资源管理器）。
+  Future<void> openConfigsDir() async {
+    await Directory(configsDir).create(recursive: true);
+    if (Platform.isWindows) {
+      await Process.run('explorer.exe', [configsDir]);
+    }
   }
 
   // ─── 节点与分组（透传 store + 解析入口；Store 为同步 API）──────────────────
@@ -474,6 +570,15 @@ class SmApp {
 
   /// 删除分组（默认分组不可删；节点归属处理对齐 Go 版）。
   void deleteGroup(String id) => store.deleteGroup(id);
+
+  /// 导出节点分享 URI（vless://… 等）。对齐 Go: ExportNodeURI。
+  String exportNodeURI(String id) {
+    final n = store.get(id);
+    if (n == null) throw AppException('节点不存在: $id');
+    final uri = nodeToUri(n);
+    if (uri.isEmpty) throw AppException('导出为空');
+    return uri;
+  }
 
   // ─── 订阅（app.go: RefreshGroupSubscription + subscribe.go 拉取）────────────
 
@@ -521,6 +626,55 @@ class SmApp {
     } catch (_) {
       // 拉取失败保留分组，用户可手动重试
     }
+  }
+
+  /// 对齐 Go: FetchSubscriptionAsGroup — 拉取成功 → 新建「订阅N」分组
+  /// （最右侧，链接自动填充，不自动更新），节点全部放入该分组；
+  /// 同时记录到全局订阅列表。返回（分组, 节点数）。
+  Future<(Group, int)> fetchSubscriptionAsGroup(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) throw AppException('订阅链接不能为空');
+    final body = await fetchSubscription(
+      trimmed,
+      userAgent: settings.subUserAgent,
+      timeoutSec: settings.subTimeoutSec,
+    );
+    final parsed = parseContent(body);
+    // 新建分组（追加到最右侧）并填入订阅链接（不自动更新）
+    final g = store.addGroup(nextSubGroupName(store.getGroups()), '');
+    store.updateGroup(g.id, g.name, trimmed, false, 0);
+    for (final n in parsed) {
+      n.groupId = g.id;
+      n.subUrl = trimmed;
+    }
+    store.addMany(parsed);
+    // 同步记录到全局订阅列表（弹窗的「已添加的订阅」）
+    final subs = [...?settings.subscriptions];
+    if (!subs.contains(trimmed)) subs.add(trimmed);
+    settings.subscriptions = subs;
+    cfgManager.save();
+    return (store.groupByID(g.id) ?? g, parsed.length);
+  }
+
+  /// 对齐 Go: RemoveSubscription — 从全局订阅列表移除。
+  void removeSubscription(String url) {
+    settings.subscriptions = [...?settings.subscriptions]
+        .where((u) => u != url)
+        .toList();
+    cfgManager.save();
+  }
+
+  /// 下一个可用的「订阅N」名称（N 取现有最大值 +1）。
+  static String nextSubGroupName(List<Group> groups) {
+    var maxN = 0;
+    for (final g in groups) {
+      final m = RegExp(r'^订阅(\d+)$').firstMatch(g.name);
+      if (m != null) {
+        final n = int.tryParse(m.group(1)!) ?? 0;
+        if (n > maxN) maxN = n;
+      }
+    }
+    return '订阅${maxN + 1}';
   }
 
   // ─── 订阅自动更新 ──────────────────────────────────────────────────────────

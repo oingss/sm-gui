@@ -10,6 +10,6 @@ export 'src/widgets/bottom_bar.dart';
 export 'src/widgets/log_panel.dart';
 export 'src/modals/import_modal.dart';
 export 'src/modals/edit_node_modal.dart';
-export 'src/modals/settings_modal.dart';
+export 'src/settings_panel.dart';
 export 'src/modals/subscription_modal.dart';
 export 'src/modals/group_edit_modal.dart';

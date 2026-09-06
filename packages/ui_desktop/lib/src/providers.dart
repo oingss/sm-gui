@@ -77,6 +77,18 @@ final configFilesProvider =
     AsyncNotifierProvider<ConfigFilesNotifier, List<String>>(
         ConfigFilesNotifier.new);
 
+/// 当前选中的分组 ID（对齐 React 版 App.jsx 的 activeGroupId：
+/// 启动时显示「默认」分组；订阅拉取成功后切到新分组）。
+class ActiveGroupId extends Notifier<String> {
+  @override
+  String build() => defaultGroupID;
+
+  void set(String id) => state = id;
+}
+
+final activeGroupIdProvider =
+    NotifierProvider<ActiveGroupId, String>(ActiveGroupId.new);
+
 // ─── 内核状态 / 日志 ─────────────────────────────────────────────────────────
 
 /// 内核状态流：先吐当前状态，再跟随状态变化。

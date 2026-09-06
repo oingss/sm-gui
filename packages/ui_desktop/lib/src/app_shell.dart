@@ -1,5 +1,6 @@
-/// 应用主壳 — 对齐原 React 版 App.jsx：
-/// 标题栏（节点列表/运行日志 Tab + 内核状态灯）→ ConfigBar → 内容区 → BottomBar。
+/// 应用主壳 — 对齐 Go 版 React 版 App.jsx：
+/// 标题栏（节点列表 / 运行日志 / ⚙设置 Tab + 内核状态灯）→
+/// ConfigBar（仅节点页）→ 内容区 → BottomBar。
 library;
 
 import 'package:flutter/material.dart';
@@ -8,13 +9,13 @@ import 'package:sm_engine/sm_engine.dart';
 import 'package:ui_kit/ui_kit.dart';
 
 import 'modals/import_modal.dart';
-import 'modals/settings_modal.dart';
 import 'modals/subscription_modal.dart';
 import 'providers.dart';
 import 'widgets/bottom_bar.dart';
 import 'widgets/config_bar.dart';
 import 'widgets/log_panel.dart';
 import 'widgets/node_list.dart';
+import 'settings_panel.dart';
 
 /// 主窗口内容（不含 MaterialApp，由 apps/desktop 提供）。
 class SmDesktopApp extends ConsumerStatefulWidget {
@@ -25,7 +26,7 @@ class SmDesktopApp extends ConsumerStatefulWidget {
 }
 
 class _SmDesktopAppState extends ConsumerState<SmDesktopApp> {
-  String _tab = 'nodes'; // nodes | log
+  String _tab = 'nodes'; // nodes | log | settings
 
   void _openImport() {
     AppModal.show<void>(
@@ -40,17 +41,8 @@ class _SmDesktopAppState extends ConsumerState<SmDesktopApp> {
     AppModal.show<void>(
       context,
       title: '订阅管理',
-      width: 560,
+      width: 540,
       builder: (_) => const SubscriptionModal(),
-    );
-  }
-
-  void _openSettings() {
-    AppModal.show<void>(
-      context,
-      title: '设置',
-      width: 620,
-      builder: (_) => const SettingsModal(),
     );
   }
 
@@ -76,11 +68,14 @@ class _SmDesktopAppState extends ConsumerState<SmDesktopApp> {
             ConfigBar(
               onImport: _openImport,
               onSubscription: _openSubscription,
-              onSettings: _openSettings,
             ),
           // ── 主内容 ──
           Expanded(
-            child: _tab == 'nodes' ? const NodeList() : const LogPanel(),
+            child: switch (_tab) {
+              'log' => const LogPanel(),
+              'settings' => const SettingsPanel(),
+              _ => const NodeList(),
+            },
           ),
           // ── 底部栏 ──
           const BottomBar(),
@@ -106,41 +101,79 @@ class _TitleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
         color: SmPalette.bgPanel,
         border: Border(bottom: BorderSide(color: SmPalette.border)),
       ),
       child: Row(
         children: [
-          _TabButton(
-            label: '节点列表',
-            active: tab == 'nodes',
-            onTap: () => onTab('nodes'),
-          ),
-          const SizedBox(width: 6),
-          _TabButton(
-            label: '运行日志',
-            active: tab == 'log',
-            badge: running,
-            onTap: () => onTab('log'),
-          ),
-          const Spacer(),
+          // Tab 胶囊组
           Container(
-            width: 8,
-            height: 8,
+            padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: running ? SmPalette.green : SmPalette.textDim,
+              color: SmPalette.bgInput,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                _TabButton(
+                  label: '节点列表',
+                  active: tab == 'nodes',
+                  onTap: () => onTab('nodes'),
+                ),
+                _TabButton(
+                  label: '运行日志',
+                  active: tab == 'log',
+                  badge: running,
+                  onTap: () => onTab('log'),
+                ),
+                _TabButton(
+                  label: '⚙ 设置',
+                  active: tab == 'settings',
+                  onTap: () => onTab('settings'),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 6),
-          Text(
-            running ? '运行中 #$pid' : '未运行',
-            style: TextStyle(
-              color: running ? SmPalette.green : SmPalette.textDim,
-              fontSize: 12,
+          const Spacer(),
+          // 状态胶囊
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: SmPalette.bgInput,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: running ? SmPalette.green : SmPalette.textFaint,
+                    boxShadow: running
+                        ? [
+                            BoxShadow(
+                              color: SmPalette.green.withValues(alpha: 0.35),
+                              blurRadius: 4,
+                              spreadRadius: 2,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  running ? '运行中 #$pid' : '未运行',
+                  style: const TextStyle(
+                    color: SmPalette.textMid,
+                    fontSize: 11,
+                    fontFamily: 'Consolas',
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -166,15 +199,12 @@ class _TabButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(7),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         decoration: BoxDecoration(
-          color: active ? SmPalette.accent.withValues(alpha: 0.18) : null,
-          borderRadius: BorderRadius.circular(6),
-          border: active
-              ? Border.all(color: SmPalette.accent.withValues(alpha: 0.5))
-              : null,
+          color: active ? SmPalette.bgPanel : null,
+          borderRadius: BorderRadius.circular(7),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -182,12 +212,13 @@ class _TabButton extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                color: active ? SmPalette.text : SmPalette.textDim,
-                fontSize: 13,
+                color: active ? SmPalette.accent : SmPalette.textMid,
+                fontSize: 12,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
               ),
             ),
             if (badge) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Container(
                 width: 6,
                 height: 6,

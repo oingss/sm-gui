@@ -40,7 +40,9 @@ class _LogPanelState extends ConsumerState<LogPanel> {
       return SmPalette.red;
     }
     if (lower.contains('warn')) return SmPalette.yellow;
-    if (lower.contains('started') || lower.contains('success')) {
+    if (lower.contains('started') ||
+        lower.contains('已启动') ||
+        lower.contains('success')) {
       return SmPalette.green;
     }
     return SmPalette.text;
@@ -111,7 +113,7 @@ class _LogPanelState extends ConsumerState<LogPanel> {
             child: logs.isEmpty
                 ? const Center(
                     child: Text(
-                      '暂无日志，启动内核后日志将在此显示',
+                      '暂无日志，启动 sing-box 后日志将在此显示',
                       style: TextStyle(
                           color: SmPalette.textDim, fontSize: 12),
                     ),

@@ -1,39 +1,64 @@
-/// 调色板 — 对齐原 React 版 App.css 的深色配色变量。
+/// 调色板 — 对齐 Go 版 React 前端 App.css（index.css）的浅色设计令牌
+/// （浅色为默认主题，:root 变量值一一对应）。
 library;
 
 import 'package:flutter/material.dart';
 
-/// SM GUI 深色调色板。
+/// SM GUI 浅色调色板（对应 Go 版 index.css 的 :root）。
 abstract final class SmPalette {
-  /// 主背景（窗口底色）。
-  static const bg = Color(0xFF0f1117);
+  /// 主背景（--bg-0，窗口底色）。
+  static const bg = Color(0xFFf7f8fc);
 
-  /// 次级背景（面板/卡片）。
-  static const bgPanel = Color(0xFF161923);
+  /// 顶栏 / 底栏 / 卡片（--bg-1）。
+  static const bgPanel = Color(0xFFffffff);
 
-  /// 输入框/悬浮层背景。
-  static const bgInput = Color(0xFF1d2130);
+  /// 次级面板 / 弹窗体 / 输入框（--bg-2）。
+  static const bgInput = Color(0xFFf1f2f9);
 
-  /// 边框。
-  static const border = Color(0xFF2a2f42);
+  /// hover / 嵌入块（--bg-3）。
+  static const bgHover = Color(0xFFe7e9f4);
 
-  /// 主文字。
-  static const text = Color(0xFFe2e6f0);
+  /// 边框（--border）。
+  static const border = Color(0xFFe4e6f1);
 
-  /// 次级文字。
-  static const textDim = Color(0xFF8b90a7);
+  /// 强边框（--border-light）。
+  static const borderLight = Color(0xFFd2d6e8);
 
-  /// 主题强调色（蓝紫）。
-  static const accent = Color(0xFF5b7cf6);
+  /// 主文字（--text-0）。
+  static const text = Color(0xFF191c2b);
 
-  /// 成功/绿色。
-  static const green = Color(0xFF3ddc84);
+  /// 次级文字（--text-1）。
+  static const textMid = Color(0xFF4c5270);
 
-  /// 警告/黄色。
-  static const yellow = Color(0xFFf59e0b);
+  /// 弱文字（--text-2）。
+  static const textDim = Color(0xFF878da9);
 
-  /// 危险/红色。
-  static const red = Color(0xFFf05252);
+  /// 占位/最弱文字（--text-3）。
+  static const textFaint = Color(0xFFc3c7dd);
+
+  /// 主题强调色（--accent）。
+  static const accent = Color(0xFF5b7cfa);
+
+  /// 强调色浅底（--accent-dim）。
+  static const accentDim = Color(0x1C5b7cfa); // 11% alpha
+
+  /// 成功/绿色（--green）。
+  static const green = Color(0xFF1fb76a);
+
+  /// 绿色浅底（--green-dim）。
+  static const greenDim = Color(0x1F1fb76a); // 12% alpha
+
+  /// 危险/红色（--red）。
+  static const red = Color(0xFFe5484d);
+
+  /// 红色浅底（--red-dim）。
+  static const redDim = Color(0x1Fe5484d); // 12% alpha
+
+  /// 警告/黄色（--yellow）。
+  static const yellow = Color(0xFFc98a04);
+
+  /// 黄色浅底（--yellow-dim）。
+  static const yellowDim = Color(0x24de9a06); // 14% alpha
 
   /// 橙色。
   static const orange = Color(0xFFf97316);

@@ -1,11 +1,10 @@
-/// 导入节点弹窗 — 对齐原 ImportModal.jsx：粘贴 URI/订阅/base64/JSON，
-/// 选择导入到哪个分组。
+/// 导入节点弹窗 — 对齐 Go 版 ImportModal.jsx：
+/// 粘贴 URI/base64/完整配置，导入到当前选中的分组（无分组下拉）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sm_core/sm_core.dart';
 import 'package:ui_kit/ui_kit.dart';
 
 import '../actions.dart';
@@ -20,7 +19,6 @@ class ImportModal extends ConsumerStatefulWidget {
 
 class _ImportModalState extends ConsumerState<ImportModal> {
   final _content = TextEditingController();
-  String _groupId = defaultGroupID;
   bool _loading = false;
 
   @override
@@ -40,9 +38,10 @@ class _ImportModalState extends ConsumerState<ImportModal> {
     final text = _content.text.trim();
     if (text.isEmpty || _loading) return;
     final app = ref.read(smAppProvider);
+    final groupId = ref.read(activeGroupIdProvider);
     setState(() => _loading = true);
     final ok = await runAction(context, () async {
-      final count = app.addNodesFromText(text, _groupId, '');
+      final count = app.addNodesFromText(text, groupId, '');
       if (mounted) {
         AppToast.show(context, '成功导入 $count 个节点', ToastType.success);
       }
@@ -52,16 +51,10 @@ class _ImportModalState extends ConsumerState<ImportModal> {
     }
     if (mounted) setState(() => _loading = false);
     await ref.read(nodesProvider.notifier).reload();
-    await ref.read(groupsProvider.notifier).reload();
   }
 
   @override
   Widget build(BuildContext context) {
-    final groups = ref.watch(groupsProvider).valueOrNull ?? const [];
-    if (!groups.any((g) => g.id == _groupId)) {
-      _groupId = groups.isEmpty ? defaultGroupID : groups.first.id;
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -75,20 +68,8 @@ class _ImportModalState extends ConsumerState<ImportModal> {
         const SizedBox(height: 10),
         Row(
           children: [
-            const Text('导入到分组',
+            const Text('节点内容',
                 style: TextStyle(color: SmPalette.textDim, fontSize: 12)),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 200,
-              child: DropdownButtonFormField<String>(
-                initialValue: _groupId,
-                items: [
-                  for (final g in groups)
-                    DropdownMenuItem(value: g.id, child: Text(g.name)),
-                ],
-                onChanged: (v) => setState(() => _groupId = v ?? _groupId),
-              ),
-            ),
             const Spacer(),
             TextButton.icon(
               onPressed: _paste,
@@ -101,7 +82,6 @@ class _ImportModalState extends ConsumerState<ImportModal> {
             ),
           ],
         ),
-        const SizedBox(height: 6),
         TextField(
           controller: _content,
           maxLines: 10,
@@ -118,7 +98,7 @@ class _ImportModalState extends ConsumerState<ImportModal> {
           children: [
             ModalButton(
               label: '取消',
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: _loading ? null : () => Navigator.of(context).pop(),
             ),
             ModalButton(
               label: _loading ? '导入中…' : '导入',

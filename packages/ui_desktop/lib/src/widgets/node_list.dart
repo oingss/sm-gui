@@ -1,8 +1,10 @@
-/// 节点列表 — 按分组分区展示；节点行右键菜单（应用/取消应用/测延迟/
-/// 上移/下移/编辑/删除）；组头显示订阅更新时间、刷新按钮与分组右键菜单。
+/// 节点列表 — 对齐 Go 版 NodeList.jsx：
+/// 横向分组页签（点击切换 / 右键管理）+ 节点行（协议徽章 / 已应用 /
+/// 传输层与 TLS 徽章 / 地址 / 测试结果）+ 完整右键菜单 + 空态。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sm_core/sm_core.dart';
 import 'package:ui_kit/ui_kit.dart';
@@ -12,15 +14,66 @@ import '../modals/edit_node_modal.dart';
 import '../modals/group_edit_modal.dart';
 import '../providers.dart';
 
-/// 延迟/测速结果。
-class _TestState {
-  final bool testing;
-  final int? ms;
-  final double? mbps;
-  const _TestState.testing() : testing = true, ms = null, mbps = null;
-  const _TestState.done(this.ms) : testing = false, mbps = null;
-  const _TestState.speed(this.mbps) : testing = false, ms = null;
-  const _TestState.failed() : testing = false, ms = null, mbps = null;
+/// 传输层显示名（对齐 Go: TRANSPORT_LABELS）。
+const Map<String, String> _transportLabels = {
+  'ws': 'ws',
+  'http': 'h2',
+  'grpc': 'grpc',
+  'httpupgrade': 'upg',
+  'quic': 'quic',
+  'xhttp': 'xhttp',
+};
+
+/// 从节点数据中提取传输层与 TLS 信息
+/// （对齐 Go: getNodeMeta，兼容结构化配置与 raw sing-box 出站）。
+class _NodeMeta {
+  final String transport;
+  final bool tls;
+  final bool reality;
+  final bool ech;
+  final bool utls;
+  const _NodeMeta({
+    required this.transport,
+    required this.tls,
+    required this.reality,
+    required this.ech,
+    required this.utls,
+  });
+
+  factory _NodeMeta.of(Node node) {
+    final cfg = node.vMess ?? node.vless ?? node.trojan;
+    var transport = cfg?.transport?.type ?? '';
+    var tls = cfg?.tls ?? false;
+    var reality = (node.vless?.publicKey.isNotEmpty ?? false);
+    var ech = [
+      node.vMess?.echConfig,
+      node.vless?.echConfig,
+      node.trojan?.echConfig,
+    ].any((e) => e != null && e.isNotEmpty);
+    var utls = (cfg?.fingerprint.isNotEmpty ?? false);
+
+    if (cfg == null && node.rawOutbound != null) {
+      final raw = node.rawOutbound!;
+      transport = (raw['transport'] as Map?)?['type'] as String? ?? '';
+      final t = raw['tls'] as Map?;
+      tls = t?['enabled'] == true;
+      reality = ((t?['reality'] as Map?)?['enabled'] == true);
+      ech = ((t?['ech'] as Map?)?['enabled'] == true);
+      utls = ((t?['utls'] as Map?)?['enabled'] == true);
+    }
+    // 这些协议强制 TLS/QUIC
+    if (['hysteria', 'hysteria2', 'tuic', 'anytls', 'trojan', 'shadowtls']
+        .contains(node.protocol)) {
+      tls = true;
+    }
+    return _NodeMeta(
+      transport: transport,
+      tls: tls,
+      reality: reality,
+      ech: ech,
+      utls: utls,
+    );
+  }
 }
 
 class NodeList extends ConsumerStatefulWidget {
@@ -32,6 +85,7 @@ class NodeList extends ConsumerStatefulWidget {
 
 class _NodeListState extends ConsumerState<NodeList> {
   final Map<String, _TestState> _tests = {};
+  String? _selectedId;
 
   List<Node> _nodesOf(List<Node> nodes, Group g) =>
       nodes.where((n) => (n.groupId.isEmpty ? defaultGroupID : n.groupId) == g.id).toList();
@@ -41,7 +95,7 @@ class _NodeListState extends ConsumerState<NodeList> {
   Future<void> _applyNode(Node node) async {
     final app = ref.read(smAppProvider);
     await runAction(context, () => app.applyNode(node.id),
-        successMsg: '节点已应用', failurePrefix: '应用节点失败');
+        successMsg: '节点已应用到配置文件', failurePrefix: '应用节点失败');
     ref.read(settingsVersionProvider.notifier).bump();
   }
 
@@ -54,10 +108,8 @@ class _NodeListState extends ConsumerState<NodeList> {
 
   Future<void> _deleteNode(Node node) async {
     final app = ref.read(smAppProvider);
-    final confirmed = await _confirm('确认删除节点「${node.name}」？');
-    if (!confirmed || !mounted) return;
     await runAction(context, () async => app.deleteNode(node.id),
-        successMsg: '节点已删除', failurePrefix: '删除失败');
+        failurePrefix: '删除失败');
     await ref.read(nodesProvider.notifier).reload();
   }
 
@@ -72,14 +124,10 @@ class _NodeListState extends ConsumerState<NodeList> {
     setState(() => _tests[node.id] = const _TestState.testing());
     final ms = await app.testLatency(node);
     if (!mounted) return;
-    setState(() => _tests[node.id] = _TestState.done(ms));
-    if (ms < 0 && mounted) {
-      AppToast.show(context, '延迟测试失败: ${node.address}', ToastType.error);
-    }
+    setState(() => _tests[node.id] =
+        ms >= 0 ? _TestState.done(ms) : const _TestState.failed());
   }
 
-  /// 测速（下载）：经临时 sing-box 实例下载测速，结果 Toast 提示
-  /// （失败通常因为未安装 sing-box 内核）。
   Future<void> _testSpeed(Node node) async {
     final app = ref.read(smAppProvider);
     setState(() => _tests[node.id] = const _TestState.testing());
@@ -87,13 +135,51 @@ class _NodeListState extends ConsumerState<NodeList> {
       final mbps = await app.testSpeed(node);
       if (!mounted) return;
       setState(() => _tests[node.id] = _TestState.speed(mbps));
-      AppToast.show(context, '${mbps.toStringAsFixed(1)} Mbps',
-          ToastType.success);
     } catch (e) {
       if (!mounted) return;
       setState(() => _tests[node.id] = const _TestState.failed());
-      final msg = e is AppException ? e.message : '$e';
-      AppToast.show(context, '测速失败: $msg', ToastType.error);
+    }
+  }
+
+  Future<void> _exportNode(Node node) async {
+    final app = ref.read(smAppProvider);
+    String uri;
+    try {
+      uri = app.exportNodeURI(node.id);
+    } catch (e) {
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('导出失败'),
+            content: Text('$e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: uri));
+    if (mounted) {
+      // 对齐 Go 的 alert：展示完整链接，需点确定
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('分享链接已复制到剪贴板'),
+          content: Text(uri),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -104,8 +190,19 @@ class _NodeListState extends ConsumerState<NodeList> {
     final ok = await runAction(context, () async {
       final count = await app.refreshGroupSubscription(group.id);
       if (mounted) {
-        AppToast.show(context, '订阅「${group.name}」更新成功，共 $count 个节点',
-            ToastType.success);
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('订阅更新成功'),
+            content: Text('分组「${group.name}」订阅更新成功，共 $count 个节点'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
       }
     }, failurePrefix: '订阅更新失败');
     if (ok) {
@@ -116,19 +213,35 @@ class _NodeListState extends ConsumerState<NodeList> {
 
   Future<void> _deleteGroup(Group group) async {
     if (group.isDefault) return;
-    final confirmed =
-        await _confirm('确认删除分组「${group.name}」？\n该分组内的节点将移入「默认」分组。');
-    if (!confirmed || !mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认'),
+        content: Text('确认删除分组「${group.name}」？\n该分组内的节点将移入「默认」分组。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final app = ref.read(smAppProvider);
     await runAction(context, () async => app.deleteGroup(group.id),
-        successMsg: '分组已删除', failurePrefix: '删除分组失败');
+        failurePrefix: '删除分组失败');
     await ref.read(groupsProvider.notifier).reload();
     await ref.read(nodesProvider.notifier).reload();
   }
 
   Future<void> _moveGroup(Group group, int delta) async {
     final app = ref.read(smAppProvider);
-    app.moveGroup(group.id, delta);
+    await runAction(context, () async => app.moveGroup(group.id, delta),
+        failurePrefix: '移动分组失败');
     await ref.read(groupsProvider.notifier).reload();
   }
 
@@ -136,7 +249,7 @@ class _NodeListState extends ConsumerState<NodeList> {
     return AppModal.show<void>(
       context,
       title: group == null ? '新建分组' : (group.isDefault ? '编辑默认分组' : '编辑分组'),
-      width: 460,
+      width: 380,
       builder: (_) => GroupEditModal(group: group, afterID: afterID),
     );
   }
@@ -150,58 +263,48 @@ class _NodeListState extends ConsumerState<NodeList> {
     );
   }
 
-  Future<bool> _confirm(String message) async {
-    final res = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('确认'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('确认'),
-          ),
-        ],
-      ),
-    );
-    return res == true;
-  }
-
   // ─── 右键菜单 ──────────────────────────────────────────────────────────────
 
   void _showNodeMenu(Offset pos, Node node, bool applied, int index, int total) {
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
+      color: SmPalette.bgPanel,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: SmPalette.border),
+      ),
       items: [
-        PopupMenuItem(
-          enabled: false,
-          child: Text(node.name,
-              style: const TextStyle(
-                  color: SmPalette.textDim, fontSize: 12)),
-        ),
+        _headerItem(node.name),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: applied ? 'unapply' : 'apply',
-          child: Text(applied ? '取消应用' : '应用此节点'),
+          child: _ctxItem(applied ? '✕' : '▶', applied ? '取消应用' : '应用',
+              primary: !applied),
         ),
-        const PopupMenuItem(value: 'latency', child: Text('测试延迟')),
-        const PopupMenuItem(value: 'speed', child: Text('测速（下载）')),
-        PopupMenuItem(value: 'up', enabled: index > 0, child: const Text('上移')),
         PopupMenuItem(
-            value: 'down',
-            enabled: index < total - 1,
-            child: const Text('下移')),
-        const PopupMenuItem(value: 'edit', child: Text('编辑')),
+            value: 'edit', child: _ctxItem('✎', '编辑')),
+        PopupMenuItem(
+            value: 'latency',
+            child: _ctxItem('⏱', '测试真连接延迟')),
+        PopupMenuItem(value: 'speed', child: _ctxItem('⇣', '测试速度')),
+        PopupMenuItem(
+            value: 'export', child: _ctxItem('⧉', '导出分享链接')),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'up',
+          enabled: index > 0,
+          child: _ctxItem('↑', '上移', disabled: index <= 0),
+        ),
+        PopupMenuItem(
+          value: 'down',
+          enabled: index < total - 1,
+          child: _ctxItem('↓', '下移', disabled: index >= total - 1),
+        ),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'delete',
-          child: const Text('删除节点',
-              style: TextStyle(color: SmPalette.red)),
+          child: _ctxItem('⊗', '删除节点', danger: true),
         ),
       ],
     ).then((v) {
@@ -211,16 +314,18 @@ class _NodeListState extends ConsumerState<NodeList> {
           _applyNode(node);
         case 'unapply':
           _unapply();
+        case 'edit':
+          _openNodeEdit(node);
         case 'latency':
           _testLatency(node);
         case 'speed':
           _testSpeed(node);
+        case 'export':
+          _exportNode(node);
         case 'up':
           _moveNode(node, -1);
         case 'down':
           _moveNode(node, 1);
-        case 'edit':
-          _openNodeEdit(node);
         case 'delete':
           _deleteNode(node);
       }
@@ -228,34 +333,31 @@ class _NodeListState extends ConsumerState<NodeList> {
   }
 
   void _showGroupMenu(Offset pos, Group group, int index, int total) {
+    final canMoveLeft = index >= 2; // 默认分组与其右侧第一个分组不可左移
+    final canMoveRight = !group.isDefault && index < total - 1;
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
+      color: SmPalette.bgPanel,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: SmPalette.border),
+      ),
       items: [
-        PopupMenuItem(
-          enabled: false,
-          child: Text('分组：${group.name}',
-              style: const TextStyle(
-                  color: SmPalette.textDim, fontSize: 12)),
-        ),
+        _headerItem('分组：${group.name}'),
         const PopupMenuDivider(),
-        const PopupMenuItem(value: 'create', child: Text('新建分组')),
-        const PopupMenuItem(value: 'edit', child: Text('编辑')),
+        PopupMenuItem(value: 'create', child: _ctxItem('⊞', '新建分组', primary: true)),
+        PopupMenuItem(value: 'edit', child: _ctxItem('✎', '编辑')),
         if (group.subUrl.isNotEmpty)
-          const PopupMenuItem(value: 'refresh', child: Text('更新订阅')),
-        PopupMenuItem(
-            value: 'up',
-            enabled: index > 1,
-            child: const Text('上移')),
-        PopupMenuItem(
-            value: 'down',
-            enabled: !group.isDefault && index < total - 1,
-            child: const Text('下移')),
+          PopupMenuItem(value: 'refresh', child: _ctxItem('⟳', '更新')),
+        if (canMoveLeft)
+          PopupMenuItem(value: 'left', child: _ctxItem('←', '左移')),
+        if (canMoveRight)
+          PopupMenuItem(value: 'right', child: _ctxItem('→', '右移')),
         PopupMenuItem(
           value: 'delete',
           enabled: !group.isDefault,
-          child: const Text('删除分组',
-              style: TextStyle(color: SmPalette.red)),
+          child: _ctxItem('⊗', '删除分组', danger: true, disabled: group.isDefault),
         ),
       ],
     ).then((v) {
@@ -267,14 +369,36 @@ class _NodeListState extends ConsumerState<NodeList> {
           _openGroupEdit(group, null);
         case 'refresh':
           _refreshSubscription(group);
-        case 'up':
+        case 'left':
           _moveGroup(group, -1);
-        case 'down':
+        case 'right':
           _moveGroup(group, 1);
         case 'delete':
           _deleteGroup(group);
       }
     });
+  }
+
+  PopupMenuItem<String> _headerItem(String text) => PopupMenuItem(
+        enabled: false,
+        child: Text(text,
+            style: const TextStyle(
+                color: SmPalette.textDim, fontSize: 11)),
+      );
+
+  Widget _ctxItem(String icon, String label,
+      {bool primary = false, bool danger = false, bool disabled = false}) {
+    var color = SmPalette.text;
+    if (primary) color = SmPalette.accent;
+    if (danger) color = SmPalette.red;
+    if (disabled) color = SmPalette.textFaint;
+    return Row(
+      children: [
+        SizedBox(width: 18, child: Text(icon, style: TextStyle(color: color, fontSize: 12))),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(color: color, fontSize: 12)),
+      ],
+    );
   }
 
   // ─── 构建 ─────────────────────────────────────────────────────────────────
@@ -284,249 +408,368 @@ class _NodeListState extends ConsumerState<NodeList> {
     final groups = ref.watch(groupsProvider).valueOrNull;
     final nodes = ref.watch(nodesProvider).valueOrNull;
     final appliedId = ref.watch(appliedIdProvider);
+    final activeGroupId = ref.watch(activeGroupIdProvider);
 
     if (groups == null || nodes == null) {
       return const Center(
           child: CircularProgressIndicator(strokeWidth: 2));
     }
+    // 当前选中分组若已被删除, 回到默认分组（对齐 React loadGroups）
+    final activeGroup = groups.any((g) => g.id == activeGroupId)
+        ? groups.firstWhere((g) => g.id == activeGroupId)
+        : groups.firstWhere(
+            (g) => g.id == defaultGroupID,
+            orElse: () => groups.first,
+          );
+    final activeNodes = _nodesOf(nodes, activeGroup);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 分组操作栏
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          child: Row(
-            children: [
-              Text('${groups.length} 个分组 / ${nodes.length} 个节点',
-                  style: const TextStyle(
-                      color: SmPalette.textDim, fontSize: 12)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () => _openGroupEdit(null, ''),
-                icon: const Icon(Icons.create_new_folder_outlined, size: 15),
-                label: const Text('新建分组'),
-                style: TextButton.styleFrom(
-                  foregroundColor: SmPalette.textDim,
-                  textStyle: const TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
+        // ── 分组页签栏（横向）──
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: const BoxDecoration(
+            color: SmPalette.bgPanel,
+            border: Border(bottom: BorderSide(color: SmPalette.border)),
           ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            itemCount: groups.length,
-            itemBuilder: (context, i) {
-              final g = groups[i];
-              final groupNodes = _nodesOf(nodes, g);
-              return _GroupSection(
-                group: g,
-                nodes: groupNodes,
-                appliedId: appliedId,
-                tests: _tests,
-                groupIndex: i,
-                groupCount: groups.length,
-                onGroupMenu: (pos) =>
-                    _showGroupMenu(pos, g, i, groups.length),
-                onNodeMenu: (pos, node) {
-                  final idx = groupNodes.indexOf(node);
-                  _showNodeMenu(pos, node, node.id == appliedId, idx,
-                      groupNodes.length);
-                },
-                onRefreshSub: () => _refreshSubscription(g),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GroupSection extends StatelessWidget {
-  final Group group;
-  final List<Node> nodes;
-  final String appliedId;
-  final Map<String, _TestState> tests;
-  final int groupIndex;
-  final int groupCount;
-  final void Function(Offset) onGroupMenu;
-  final void Function(Offset, Node) onNodeMenu;
-  final VoidCallback onRefreshSub;
-
-  const _GroupSection({
-    required this.group,
-    required this.nodes,
-    required this.appliedId,
-    required this.tests,
-    required this.groupIndex,
-    required this.groupCount,
-    required this.onGroupMenu,
-    required this.onNodeMenu,
-    required this.onRefreshSub,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 组头
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onSecondaryTapUp: (d) => onGroupMenu(d.globalPosition),
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            color: SmPalette.bgInput.withValues(alpha: 0.5),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                Icon(
-                  group.isDefault
-                      ? Icons.home_outlined
-                      : group.subUrl.isNotEmpty
-                          ? Icons.rss_feed
-                          : Icons.folder_outlined,
-                  size: 14,
-                  color: SmPalette.textDim,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  group.name,
-                  style: const TextStyle(
-                    color: SmPalette.text,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                for (final g in groups)
+                  _GroupTab(
+                    group: g,
+                    active: g.id == activeGroup.id,
+                    count: _nodesOf(nodes, g).length,
+                    onTap: () =>
+                        ref.read(activeGroupIdProvider.notifier).set(g.id),
+                    onMenu: (pos) {
+                      ref.read(activeGroupIdProvider.notifier).set(g.id);
+                      _showGroupMenu(pos, g, groups.indexOf(g), groups.length);
+                    },
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text('${nodes.length} 个节点',
-                    style: const TextStyle(
-                        color: SmPalette.textDim, fontSize: 11)),
-                if (group.subUrl.isNotEmpty) ...[
-                  const SizedBox(width: 10),
-                  Text('更新于 ${formatLastUpdate(group.lastUpdate)}',
-                      style: const TextStyle(
-                          color: SmPalette.textDim, fontSize: 11)),
-                  const SizedBox(width: 6),
-                  InkWell(
-                    onTap: onRefreshSub,
-                    borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
-                      padding: EdgeInsets.all(2),
-                      child: Icon(Icons.refresh,
-                          size: 14, color: SmPalette.accent),
-                    ),
-                  ),
-                ],
-                const Spacer(),
-                Text('右键管理分组',
-                    style: TextStyle(
-                        color: SmPalette.textDim.withValues(alpha: 0.6),
-                        fontSize: 11)),
               ],
             ),
           ),
         ),
-        // 节点行
-        if (nodes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 14),
-            child: Center(
-              child: Text('该分组暂无节点，可使用「导入节点」或「订阅」添加',
-                  style: TextStyle(color: SmPalette.textDim, fontSize: 12)),
-            ),
-          )
-        else
-          for (final n in nodes)
-            _NodeRow(
-              node: n,
-              applied: n.id == appliedId,
-              test: tests[n.id],
-              onMenu: (pos) => onNodeMenu(pos, n),
-            ),
-        const Divider(height: 1, color: SmPalette.border),
+        // ── 列表 ──
+        Expanded(
+          child: activeNodes.isEmpty
+              ? _EmptyState(groupName: activeGroup.name)
+              : SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 6),
+                      for (final node in activeNodes)
+                        _NodeRow(
+                          node: node,
+                          applied: node.id == appliedId,
+                          selected: _selectedId == node.id,
+                          test: _tests[node.id],
+                          onClick: () => setState(() => _selectedId = node.id),
+                          onMenu: (pos) {
+                            setState(() => _selectedId = node.id);
+                            final idx = activeNodes.indexOf(node);
+                            _showNodeMenu(pos, node, node.id == appliedId,
+                                idx, activeNodes.length);
+                          },
+                        ),
+                      const SizedBox(height: 6),
+                    ],
+                  ),
+                ),
+        ),
       ],
     );
   }
 }
 
+/// 分组页签（胶囊）。
+class _GroupTab extends StatelessWidget {
+  final Group group;
+  final bool active;
+  final int count;
+  final VoidCallback onTap;
+  final void Function(Offset) onMenu;
+
+  const _GroupTab({
+    required this.group,
+    required this.active,
+    required this.count,
+    required this.onTap,
+    required this.onMenu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: group.isDefault ? '默认分组（不可删除，名称固定）' : '右键管理分组',
+      child: GestureDetector(
+        onSecondaryTapUp: (d) => onMenu(d.globalPosition),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+            decoration: BoxDecoration(
+              color: active ? SmPalette.accentDim : SmPalette.bgInput,
+              border: Border.all(
+                color: active ? SmPalette.accent : Colors.transparent,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(
+                    group.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: active ? SmPalette.accent : SmPalette.textMid,
+                      fontSize: 12,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                if (group.subUrl.isNotEmpty) ...[
+                  const SizedBox(width: 5),
+                  const Text('◉',
+                      style:
+                          TextStyle(color: SmPalette.accent, fontSize: 9)),
+                ],
+                const SizedBox(width: 5),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                  constraints: const BoxConstraints(minWidth: 16),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: active ? SmPalette.accent : SmPalette.bgHover,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      color: active ? Colors.white : SmPalette.textDim,
+                      fontSize: 10,
+                      fontFamily: 'Consolas',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 空态（对齐 Go: node-list-empty）。
+class _EmptyState extends StatelessWidget {
+  final String groupName;
+  const _EmptyState({required this.groupName});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('◈',
+              style: TextStyle(fontSize: 40, color: SmPalette.textFaint)),
+          const SizedBox(height: 10),
+          Text('「$groupName」分组暂无节点',
+              style: const TextStyle(
+                  color: SmPalette.textMid,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          const Text('点击上方「导入节点」或「订阅」，获取的节点将导入当前分组',
+              style: TextStyle(color: SmPalette.textDim, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 延迟/测速结果。
+class _TestState {
+  final bool testing;
+  final int? ms;
+  final double? mbps;
+  const _TestState.testing() : testing = true, ms = null, mbps = null;
+  const _TestState.done(this.ms) : testing = false, mbps = null;
+  const _TestState.speed(this.mbps) : testing = false, ms = null;
+  const _TestState.failed() : testing = false, ms = null, mbps = null;
+}
+
+/// 节点行（对齐 Go: NodeRow）。
 class _NodeRow extends StatelessWidget {
   final Node node;
   final bool applied;
+  final bool selected;
   final _TestState? test;
+  final VoidCallback onClick;
   final void Function(Offset) onMenu;
 
   const _NodeRow({
     required this.node,
     required this.applied,
+    required this.selected,
+    required this.onClick,
     required this.onMenu,
     this.test,
   });
 
-  Color get _latencyColor {
-    if (test?.mbps != null) return SmPalette.green;
-    final ms = test?.ms;
-    if (ms == null) return SmPalette.textDim;
-    if (ms < 0) return SmPalette.red;
-    if (ms < 300) return SmPalette.green;
-    if (ms < 800) return SmPalette.yellow;
-    return SmPalette.red;
+  (Color, Color) _testChipColors() {
+    final t = test;
+    if (t == null) return (SmPalette.textDim, SmPalette.bgHover);
+    if (t.testing) return (SmPalette.textDim, SmPalette.bgHover);
+    if (t.mbps != null) {
+      final v = t.mbps!;
+      return v > 20
+          ? (const Color(0xFF16a34a), const Color(0x2116a34a))
+          : v > 5
+              ? (const Color(0xFFd97706), const Color(0x21d97706))
+              : (const Color(0xFFdc2626), const Color(0x21dc2626));
+    }
+    final ms = t.ms;
+    if (ms == null || ms < 0) {
+      return (const Color(0xFFdc2626), const Color(0x21dc2626));
+    }
+    return ms < 300
+        ? (const Color(0xFF16a34a), const Color(0x2116a34a))
+        : ms < 800
+            ? (const Color(0xFFd97706), const Color(0x21d97706))
+            : (const Color(0xFFdc2626), const Color(0x21dc2626));
+  }
+
+  String _testText() {
+    final t = test;
+    if (t == null) return '';
+    if (t.testing) return '测试中…';
+    if (t.mbps != null) {
+      final v = t.mbps!;
+      return '${v >= 1 ? v.toStringAsFixed(1) : v.toStringAsFixed(2)} Mbps';
+    }
+    if (t.ms != null && t.ms! >= 0) return '${t.ms} ms';
+    return '失败';
   }
 
   @override
   Widget build(BuildContext context) {
-    final test = this.test;
+    final meta = _NodeMeta.of(node);
+    final chipColor = _testChipColors();
+
     return InkWell(
-      onTap: () {},
+      onTap: onClick,
       onSecondaryTapUp: (d) => onMenu(d.globalPosition),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              width: 2,
-              color: applied ? SmPalette.green : Colors.transparent,
-            ),
-          ),
+          color: applied
+              ? SmPalette.greenDim
+              : selected
+                  ? SmPalette.accentDim
+                  : null,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: applied || selected
+              ? [
+                  BoxShadow(
+                    color: applied ? SmPalette.green : SmPalette.accent,
+                    offset: const Offset(-3, 0),
+                    blurRadius: 0,
+                    spreadRadius: -2,
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           children: [
             ProtocolBadge(protocol: node.protocol),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                node.name.isEmpty ? '未命名节点' : node.name,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: SmPalette.text, fontSize: 12),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      node.name.isEmpty ? '未命名节点' : node.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: SmPalette.text, fontSize: 12.5),
+                    ),
+                  ),
+                  if (applied) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: SmPalette.greenDim,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text('已应用',
+                          style: TextStyle(
+                              color: SmPalette.green,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                ],
               ),
             ),
-            if (applied) ...[
+            // 传输层 / TLS 标识
+            if (meta.transport.isNotEmpty) ...[
               const SizedBox(width: 6),
-              const MetaBadge(label: '已应用', color: SmPalette.green),
+              MetaBadge(
+                label:
+                    _transportLabels[meta.transport] ?? meta.transport,
+                color: SmPalette.textDim,
+              ),
+            ],
+            const SizedBox(width: 6),
+            if (meta.reality)
+              const MetaBadge(label: 'REALITY', color: SmPalette.green)
+            else if (meta.tls)
+              MetaBadge(
+                  label: meta.ech ? 'TLS·ECH' : 'TLS',
+                  color: meta.ech ? SmPalette.cyan : SmPalette.green),
+            if (meta.utls && !meta.reality) ...[
+              const SizedBox(width: 6),
+              const MetaBadge(label: 'uTLS', color: SmPalette.accent),
             ],
             const SizedBox(width: 10),
             Text(
               '${node.address}:${node.port}',
               style: const TextStyle(
-                  color: SmPalette.textDim, fontSize: 11),
+                  color: SmPalette.textDim,
+                  fontSize: 11,
+                  fontFamily: 'Consolas'),
             ),
-            const Spacer(),
-            if (test != null)
-              Text(
-                test.testing
-                    ? '测试中…'
-                    : (test.mbps != null
-                        ? '${test.mbps!.toStringAsFixed(1)} Mbps'
-                        : (test.ms != null && test.ms! >= 0
-                            ? '${test.ms} ms'
-                            : '失败')),
-                style: TextStyle(
-                    color: _latencyColor, fontSize: 11),
+            if (test != null) ...[
+              const SizedBox(width: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 1),
+                decoration: BoxDecoration(
+                  color: chipColor.$2,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(_testText(),
+                    style: TextStyle(
+                        color: chipColor.$1,
+                        fontSize: 11,
+                        fontFamily: 'Consolas',
+                        fontWeight: FontWeight.w500)),
               ),
+            ],
           ],
         ),
       ),
