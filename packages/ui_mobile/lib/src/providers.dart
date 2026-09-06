@@ -34,9 +34,18 @@ final settingsVersionProvider =
     NotifierProvider<SettingsVersion, int>(SettingsVersion.new);
 
 /// 当前设置（读取 + 版本联动）。
+/// 注意：Settings 是可变对象，引用不变，下游若直接比较对象引用则不会感知字段变化。
+/// 对需要即时刷新的字段（如 appliedNodeID），请使用各自独立的派生 Provider。
 final settingsProvider = Provider<Settings>((ref) {
   ref.watch(settingsVersionProvider);
   return ref.watch(smAppProvider).settings;
+});
+
+/// 当前应用的节点 ID（直接暴露为字符串值，而非从可变 Settings 对象派生）。
+/// Riverpod 对 String 做值相等比较，bump 后能正确触发 UI 刷新。
+final appliedIdProvider = Provider<String>((ref) {
+  ref.watch(settingsVersionProvider);
+  return ref.watch(smAppProvider).settings.appliedNodeID;
 });
 
 // ─── 节点 / 分组 / 配置文件 ─────────────────────────────────────────────────
@@ -135,10 +144,6 @@ final logProvider = NotifierProvider<LogController, List<String>>(
     LogController.new);
 
 // ─── 应用节点 ────────────────────────────────────────────────────────────────
-
-/// 当前应用的节点 ID。
-final appliedIdProvider =
-    Provider<String>((ref) => ref.watch(settingsProvider).appliedNodeID);
 
 /// 当前应用的节点对象（可能为 null）。
 final appliedNodeProvider = Provider<Node?>((ref) {
