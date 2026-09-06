@@ -4,7 +4,6 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sm_core/sm_core.dart';
 import 'package:ui_kit/ui_kit.dart';
 
 import '../actions.dart';

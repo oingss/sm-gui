@@ -100,7 +100,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
   void _loadForm(Settings s) {
     _f = Settings.fromJson(s.toJson());
     final b = _f.builtin;
-    if (_f.subscriptions == null) _f.subscriptions = [];
+    _f.subscriptions ??= [];
     _subUa.text = _f.subUserAgent;
     _subTimeout.text = '${_f.subTimeoutSec}';
     _logLines.text = '${_f.logMaxLines}';
