@@ -634,6 +634,7 @@ Map<String, dynamic> _buildBuiltinMihomoDNS(BuiltinOptions opts) {
 
   final dns = <String, dynamic>{
     'enable': true,
+    'listen': '127.0.0.1:5353',
     'ipv6': b.ipv6,
     'nameserver': directDNS,
     // 代理服务器域名的解析走直连 DNS（避免经代理解析节点的鸡生蛋问题）
