@@ -89,7 +89,7 @@ class ConfigBar extends ConsumerWidget {
                             : (value.isEmpty
                                 ? '— 选择 $core 配置文件 —'
                                 : value),
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: value.isEmpty
                               ? SmPalette.textDim
                               : SmPalette.text,

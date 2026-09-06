@@ -41,18 +41,28 @@ class _NodeMeta {
   });
 
   factory _NodeMeta.of(Node node) {
-    final cfg = node.vMess ?? node.vless ?? node.trojan;
-    var transport = cfg?.transport?.type ?? '';
-    var tls = cfg?.tls ?? false;
-    var reality = (node.vless?.publicKey.isNotEmpty ?? false);
+    // cfg 类型各异（VMessConfig/VLESSConfig/TrojanConfig 无公共父类字段），
+    // 逐类型取值后再合并（语义与 Go 版 getNodeMeta 一致）
+    final vm = node.vMess;
+    final vl = node.vless;
+    final tr = node.trojan;
+    final hasCfg = vm != null || vl != null || tr != null;
+    var transport = vm?.transport?.type ??
+        vl?.transport?.type ??
+        tr?.transport?.type ??
+        '';
+    var tls = vm?.tls ?? vl?.tls ?? tr?.tls ?? false;
+    var reality = (vl?.publicKey.isNotEmpty ?? false);
     var ech = [
-      node.vMess?.echConfig,
-      node.vless?.echConfig,
-      node.trojan?.echConfig,
+      vm?.echConfig,
+      vl?.echConfig,
+      tr?.echConfig,
     ].any((e) => e != null && e.isNotEmpty);
-    var utls = (cfg?.fingerprint.isNotEmpty ?? false);
+    var utls = (vm?.fingerprint.isNotEmpty ?? false) ||
+        (vl?.fingerprint.isNotEmpty ?? false) ||
+        (tr?.fingerprint.isNotEmpty ?? false);
 
-    if (cfg == null && node.rawOutbound != null) {
+    if (!hasCfg && node.rawOutbound != null) {
       final raw = node.rawOutbound!;
       transport = (raw['transport'] as Map?)?['type'] as String? ?? '';
       final t = raw['tls'] as Map?;

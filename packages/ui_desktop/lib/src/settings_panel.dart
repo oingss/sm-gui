@@ -161,7 +161,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
 
   Future<void> _save() async {
     if (_saving) return;
-    // 把控制器值写回表单快照
+    // 把控制器值写回表单快照（b 与 _f.builtin 是同一对象引用）
     final b = _f.builtin;
     _f
       ..subUserAgent = _subUa.text.trim()
@@ -169,23 +169,23 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
       ..logMaxLines = int.tryParse(_logLines.text) ?? 0
       ..pollIntervalMs = int.tryParse(_poll.text) ?? 0
       ..proxyPort = int.tryParse(_proxyPort.text) ?? 0
-      ..tunMTU = int.tryParse(_tunMtu.text) ?? 0
-      ..builtin
-        ..resolverDNS = _resolverDns.text.trim()
-        ..resolverDNSBackup = _resolverDnsBackup.text.trim()
-        ..singBoxDirect
-          ..address = _sbDirectAddr.text.trim()
-          ..port = int.tryParse(_sbDirectPort.text) ?? 0
-          ..path = _sbDirectPath.text.trim()
-        ..singBoxProxy
-          ..address = _sbProxyAddr.text.trim()
-          ..port = int.tryParse(_sbProxyPort.text) ?? 0
-          ..path = _sbProxyPath.text.trim()
-        ..mihomoDirect = [_mihomoDirect0.text.trim(), _mihomoDirect1.text.trim()]
-        ..mihomoProxy = [_mihomoProxy0.text.trim(), _mihomoProxy1.text.trim()]
-        ..clashAPI
-          ..port = int.tryParse(_clashPort.text) ?? 0
-          ..secret = _clashSecret.text;
+      ..tunMTU = int.tryParse(_tunMtu.text) ?? 0;
+    b
+      ..resolverDNS = _resolverDns.text.trim()
+      ..resolverDNSBackup = _resolverDnsBackup.text.trim()
+      ..mihomoDirect = [_mihomoDirect0.text.trim(), _mihomoDirect1.text.trim()]
+      ..mihomoProxy = [_mihomoProxy0.text.trim(), _mihomoProxy1.text.trim()];
+    b.singBoxDirect
+      ..address = _sbDirectAddr.text.trim()
+      ..port = int.tryParse(_sbDirectPort.text) ?? 0
+      ..path = _sbDirectPath.text.trim();
+    b.singBoxProxy
+      ..address = _sbProxyAddr.text.trim()
+      ..port = int.tryParse(_sbProxyPort.text) ?? 0
+      ..path = _sbProxyPath.text.trim();
+    b.clashAPI
+      ..port = int.tryParse(_clashPort.text) ?? 0
+      ..secret = _clashSecret.text;
 
     // ── 前端预校验（对齐 React handleSave，alert 提示）──
     final port = _f.proxyPort;
