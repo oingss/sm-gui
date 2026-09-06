@@ -22,12 +22,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
+  // 检测 --silent 参数（自启动静默模式：仅托盘，不显示主窗口）。
+  // 参数同时传给 Dart 层（Platform.executableArguments）。
+  bool silent = false;
+  for (const auto& arg : command_line_arguments) {
+    if (arg == "--silent") {
+      silent = true;
+      break;
+    }
+  }
+
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1100, 750);
-  if (!window.Create(L"SM GUI", origin, size)) {
+  if (!window.Create(L"SM GUI", origin, size, silent)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

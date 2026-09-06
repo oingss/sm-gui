@@ -5,9 +5,15 @@
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+    : project_(project), silent_(false) {}
 
 FlutterWindow::~FlutterWindow() {}
+
+bool FlutterWindow::Create(const std::wstring& title, const Point& origin,
+                           const Size& size, bool silent) {
+  silent_ = silent;
+  return Win32Window::Create(title, origin, size);
+}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
@@ -28,7 +34,11 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    // 静默启动（--silent）时不显示主窗口，由 Dart 层 window_manager 在
+    // 需要时再调用 show()；非静默时正常显示。
+    if (!silent_) {
+      this->Show();
+    }
   });
 
   // Flutter can complete the first frame before the "show window" callback is

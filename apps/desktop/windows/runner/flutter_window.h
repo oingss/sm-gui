@@ -15,6 +15,10 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
+  // 带静默标志的 Create：silent=true 时第一帧渲染后不自动显示窗口。
+  bool Create(const std::wstring& title, const Point& origin, const Size& size,
+              bool silent);
+
  protected:
   // Win32Window:
   bool OnCreate() override;
@@ -25,6 +29,9 @@ class FlutterWindow : public Win32Window {
  private:
   // The project to run.
   flutter::DartProject project_;
+
+  // 静默启动标志：true 时第一帧回调不显示窗口。
+  bool silent_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
