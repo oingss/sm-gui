@@ -1,0 +1,142 @@
+# SM GUI Windows 自动构建
+# 推送 main 或打 v* 标签时：跑全部测试 → flutter build windows → 打包 zip
+# 标签构建会自动创建 GitHub Release 并附上产物。
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+
+jobs:
+  build:
+    # 注意：不要改回 windows-latest —— 该镜像默认已装 VS2026（v18），
+    # Flutter 3.35 工具链只认 VS2019/2022 生成器，会报
+    # "Generator Visual Studio 16 2019 could not find any instance of Visual Studio"。
+    # windows-2022 镜像自带 VS2022 Enterprise（含 C++ 工作负载）。
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.35.3
+          cache: true
+
+      - name: Pub get (workspace)
+        run: flutter pub get
+
+      - name: Core tests (pure Dart)
+        run: dart test packages/core
+
+      - name: UI tests — ui_kit
+        run: flutter test packages/ui_kit
+
+      - name: UI tests — ui_desktop
+        run: flutter test packages/ui_desktop
+
+      - name: UI tests — apps/desktop
+        run: flutter test apps/desktop
+
+      - name: Build Windows (Release)
+        run: flutter build windows --release
+        working-directory: apps/desktop
+
+      - name: Download latest sing-box
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/163jm/singbox-slim/releases/latest"
+          $headers = @{ "User-Agent" = "sm-gui-builder" }
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+          $tag = $release.tag_name
+          Write-Host "Latest sing-box version: $tag"
+
+          $assetName = "sing-box-$($tag.TrimStart('v'))-windows-amd64.zip"
+          $asset = $release.assets | Where-Object { $_.name -eq $assetName }
+          if (-not $asset) {
+            Write-Error "Asset $assetName not found"
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path "bin"
+          $zipPath = "sing-box.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "sing-box-extracted" -Force
+          $singboxExe = Get-ChildItem -Path "sing-box-extracted" -Recurse -Filter "sing-box.exe" | Select-Object -First 1
+          Copy-Item $singboxExe.FullName -Destination "bin\sing-box.exe"
+          Write-Host "sing-box.exe downloaded to bin\"
+
+      - name: Download latest mihomo
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+          $headers = @{ "User-Agent" = "sm-gui-builder" }
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+          $tag = $release.tag_name
+          Write-Host "Latest mihomo version: $tag"
+
+          # 匹配 mihomo-windows-amd64-v*.zip（排除 compatible / go120 等变体）
+          $asset = $release.assets | Where-Object { $_.name -like "mihomo-windows-amd64-v*.zip" -and $_.name -notlike "*compatible*" } | Select-Object -First 1
+          if (-not $asset) {
+            Write-Error "mihomo windows-amd64 asset not found"
+            exit 1
+          }
+          Write-Host "Asset: $($asset.name)"
+
+          New-Item -ItemType Directory -Force -Path "bin"
+          $zipPath = "mihomo.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "mihomo-extracted" -Force
+          $mihomoExe = Get-ChildItem -Path "mihomo-extracted" -Recurse -Filter "mihomo-windows-amd64-*.exe" | Select-Object -First 1
+          if (-not $mihomoExe) {
+            Write-Error "mihomo.exe not found in archive"
+            exit 1
+          }
+          Copy-Item $mihomoExe.FullName -Destination "bin\mihomo.exe"
+          Write-Host "mihomo.exe downloaded to bin\"
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          # 内置路由必需的规则文件（与 README 清单一致），缺任何一个直接失败
+          $required = @(
+            "geosite-private", "geoip-private",
+            "geosite-cn", "geosite-google", "geosite-gfw", "geosite-greatfire",
+            "geoip-cn", "geoip-facebook", "geoip-fastly", "geoip-google",
+            "geoip-netflix", "geoip-telegram", "geoip-twitter"
+          )
+          foreach ($t in $required) {
+            if (-not (Test-Path "ruleset\srs\$t.srs")) { Write-Error "缺少 ruleset\srs\$t.srs"; exit 1 }
+            if (-not (Test-Path "ruleset\mrs\$t.mrs")) { Write-Error "缺少 ruleset\mrs\$t.mrs"; exit 1 }
+          }
+          Write-Host "规则文件校验通过 ($($required.Count) 组)"
+
+          $dst = "sm-gui-windows-x64"
+          Copy-Item "apps/desktop/build/windows/x64/runner/Release" $dst -Recurse
+          # bin/ 双内核（CI 下载，程序不管理）
+          Copy-Item -Recurse "bin" "$dst\bin"
+          # 内置路由规则集 → run/rules/（程序合成内置配置时按此绝对路径引用）
+          New-Item -ItemType Directory -Force -Path "$dst\run\rules\srs"
+          New-Item -ItemType Directory -Force -Path "$dst\run\rules\mrs"
+          Copy-Item "ruleset\srs\*" "$dst\run\rules\srs\"
+          Copy-Item "ruleset\mrs\*" "$dst\run\rules\mrs\"
+          Write-Host "run\rules 已生成: srs=$((Get-ChildItem $dst\run\rules\srs).Count) 个, mrs=$((Get-ChildItem $dst\run\rules\mrs).Count) 个"
+          Compress-Archive -Path $dst -DestinationPath "sm-gui-windows-x64.zip"
+          Get-Item sm-gui-windows-x64.zip | Select-Object Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sm-gui-windows-x64
+          path: sm-gui-windows-x64.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test
+          name: test
+          files: sm-gui-windows-x64.zip
+          generate_release_notes: true

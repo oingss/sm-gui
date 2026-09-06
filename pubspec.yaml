@@ -1,0 +1,14 @@
+# SM GUI — Flutter 多平台重写
+# 使用 Dart 原生 pub workspace 管理多包（替代 melos，零额外工具链）。
+name: sm_flutter
+publish_to: none
+environment:
+  sdk: ^3.6.0
+
+workspace:
+  - packages/core
+  - packages/ui_kit
+  - packages/ui_desktop
+  - packages/ui_mobile
+  - apps/desktop
+  - apps/mobile
