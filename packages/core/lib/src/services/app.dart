@@ -64,7 +64,7 @@ class SmApp {
     this.vpnMode = false,
     SysProxyManager? sysProxy,
   }) : proxy = sysProxy ?? SysProxyManager() {
-    store = NodeStore(_join(dataDir, 'nodes.json'));
+    store = NodeStore(_join(dataDir, 'nodes.db'));
     cfgManager = SettingsManager(_join(dataDir, 'settings.json'));
   }
 

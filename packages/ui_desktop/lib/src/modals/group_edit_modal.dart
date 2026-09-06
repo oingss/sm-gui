@@ -1,4 +1,5 @@
-/// 分组新建/编辑弹窗 — 新建仅名称；编辑含名称 + 订阅链接 + 自动更新设置。
+/// 分组新建/编辑弹窗 — 新建与编辑共用同一完整表单
+/// （名称 + 订阅链接 + 自动更新设置），不再单独显示命名弹窗。
 library;
 
 import 'package:flutter/material.dart';
@@ -32,11 +33,14 @@ class _GroupEditModalState extends ConsumerState<GroupEditModal> {
       TextEditingController(text: _isEdit ? _group!.subUrl : '');
   late bool _autoUpdate = _isEdit ? _group!.autoUpdate : false;
   late final TextEditingController _interval = TextEditingController(
-      text: '${_isEdit && _group!.updateIntervalHours > 0 ? _group.updateIntervalHours : 24}');
+      text:
+          '${_isEdit && _group!.updateIntervalHours > 0 ? _group.updateIntervalHours : 24}');
   bool _saving = false;
 
   bool get _hasSub => _subUrl.text.trim().isNotEmpty;
-  bool get _canConfirm => _isEdit ? _isDefault || _name.text.trim().isNotEmpty : _name.text.trim().isNotEmpty;
+  bool get _intervalEnabled => _hasSub && _autoUpdate;
+  bool get _canConfirm =>
+      _isEdit ? _isDefault || _name.text.trim().isNotEmpty : _name.text.trim().isNotEmpty;
 
   @override
   void dispose() {
@@ -57,13 +61,22 @@ class _GroupEditModalState extends ConsumerState<GroupEditModal> {
           name: _isDefault ? _group.name : _name.text.trim(),
           isDefault: _group.isDefault,
           subUrl: _subUrl.text.trim(),
-          autoUpdate: _hasSub && _autoUpdate,
+          autoUpdate: _intervalEnabled,
           updateIntervalHours:
-              _hasSub && _autoUpdate ? (int.tryParse(_interval.text) ?? 0) : 0,
+              _intervalEnabled ? (int.tryParse(_interval.text) ?? 0) : 0,
           lastUpdate: _group.lastUpdate,
         ));
       } else {
-        app.addGroup(_name.text.trim(), widget.afterID ?? '');
+        // 新建分组：先建组，再写入订阅设置（对齐 Go 版 AddGroup + UpdateGroup）
+        final g = app.addGroup(_name.text.trim(), widget.afterID ?? '');
+        app.updateGroup(Group(
+          id: g.id,
+          name: _name.text.trim(),
+          subUrl: _subUrl.text.trim(),
+          autoUpdate: _intervalEnabled,
+          updateIntervalHours:
+              _intervalEnabled ? (int.tryParse(_interval.text) ?? 0) : 0,
+        ));
       }
     }, failurePrefix: _isEdit ? '编辑分组失败' : '新建分组失败');
     if (ok && mounted) Navigator.of(context).pop();
@@ -89,61 +102,57 @@ class _GroupEditModalState extends ConsumerState<GroupEditModal> {
             helperText: _isDefault ? '默认分组名称固定' : null,
           ),
         ),
-        if (_isEdit) ...[
-          const ModalFieldLabel('订阅链接（可选）'),
-          TextField(
-            controller: _subUrl,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-                hintText: '输入订阅链接 https://…'),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: Checkbox(
-                  value: _hasSub && _autoUpdate,
-                  onChanged: _hasSub
-                      ? (v) => setState(() => _autoUpdate = v ?? false)
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text('自动更新订阅',
-                  style: TextStyle(
-                      color: _hasSub
-                          ? SmPalette.text
-                          : SmPalette.textDim,
-                      fontSize: 12)),
-              const Spacer(),
-              Text('自动更新间隔（小时）',
-                  style: TextStyle(
-                      color: _hasSub && _autoUpdate
-                          ? SmPalette.textDim
-                          : SmPalette.textDim.withValues(alpha: 0.5),
-                      fontSize: 12)),
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 70,
-                child: TextField(
-                  controller: _interval,
-                  enabled: _hasSub && _autoUpdate,
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-            ],
-          ),
-          if (!_hasSub)
-            const Padding(
-              padding: EdgeInsets.only(top: 4),
-              child: Text('填写订阅链接后自动更新设置才会生效',
-                  style:
-                      TextStyle(color: SmPalette.textDim, fontSize: 11)),
-            ),
-        ],
+        const ModalFieldLabel('订阅链接（可选）'),
+        TextField(
+          controller: _subUrl,
+          onChanged: (_) => setState(() {}),
+          decoration:
+              const InputDecoration(hintText: '输入订阅链接 https://…'),
+        ),
         const SizedBox(height: 12),
+        // 自动更新订阅 + 间隔（同一行）
+        Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: Checkbox(
+                value: _intervalEnabled,
+                onChanged: _hasSub
+                    ? (v) => setState(() => _autoUpdate = v ?? false)
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('自动更新订阅',
+                style: TextStyle(
+                    color: _hasSub ? SmPalette.text : SmPalette.textDim,
+                    fontSize: 13)),
+            const SizedBox(width: 20),
+            Text('自动更新间隔（小时）',
+                style: TextStyle(
+                    color: _intervalEnabled
+                        ? SmPalette.textDim
+                        : SmPalette.textDim.withValues(alpha: 0.5),
+                    fontSize: 12)),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 90,
+              child: TextField(
+                controller: _interval,
+                enabled: _intervalEnabled,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+          ],
+        ),
+        if (!_hasSub)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text('填写订阅链接后自动更新设置才会生效',
+                style: TextStyle(color: SmPalette.textDim, fontSize: 11)),
+          ),
+        const SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [

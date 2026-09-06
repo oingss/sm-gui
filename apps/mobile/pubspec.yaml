@@ -13,6 +13,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.6.1
   path_provider: ^2.1.4
+  sqlite3_flutter_libs: ^0.5.24
   sm_core:
     path: ../../packages/core
   sm_engine:

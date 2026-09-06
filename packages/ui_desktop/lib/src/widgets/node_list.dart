@@ -260,7 +260,7 @@ class _NodeListState extends ConsumerState<NodeList> {
     return AppModal.show<void>(
       context,
       title: group == null ? '新建分组' : (group.isDefault ? '编辑默认分组' : '编辑分组'),
-      width: 380,
+      width: 560,
       builder: (_) => GroupEditModal(group: group, afterID: afterID),
     );
   }
