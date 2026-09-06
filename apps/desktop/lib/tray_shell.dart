@@ -158,13 +158,13 @@ class DesktopShell with WindowListener, TrayListener {
       case _kStartCore:
         await _runTrayAction(
           '启动内核失败',
-          _app.startCore,
+          _app.startCoreUserRequested,
           successMsg: '${_app.settings.core} 已启动',
         );
       case _kStopCore:
         await _runTrayAction(
           '停止内核失败',
-          _app.stopCore,
+          _app.stopCoreUserRequested,
           successMsg: '${_app.settings.core} 已停止',
         );
       case _kToggleSysProxy:
@@ -208,11 +208,11 @@ class DesktopShell with WindowListener, TrayListener {
   Future<void> _toggleSysProxy() async {
     try {
       if (_sysProxy) {
-        await _app.disableSystemProxy();
+        await _app.disableSystemProxyUserRequested();
         _sysProxy = false;
         _toast('已关闭系统代理', ToastType.success);
       } else {
-        await _app.enableSystemProxy();
+        await _app.enableSystemProxyUserRequested();
         _sysProxy = true;
         _toast('已启用系统代理', ToastType.success);
       }

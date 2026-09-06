@@ -78,11 +78,38 @@ class SmApp {
     }
     store.load();
     cfgManager.load();
-    unawaited(_restoreAfterElevation());
+    final restoredByElevation = await _restoreAfterElevation();
+    if (!restoredByElevation) {
+      // 非提权重启的正常启动：按上次退出前持久化的开关状态自动恢复。
+      // 提权重启场景已由 _restoreAfterElevation 自己处理核心的拉起，
+      // 避免重复启动。
+      unawaited(_restoreLastSessionState());
+    }
     // 订阅自动更新定时器（每分钟检查一次）
     _subTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _checkAutoUpdates();
     });
+  }
+
+  /// 按 settings.json 中记录的"用户上一次主动设置"的开关状态恢复：
+  /// TUN（settings.tunEnabled，已在 startCore 内按此生成配置，无需额外
+  /// 动作） → 系统代理（sysProxyDesired）→ 启动核心（coreRunningDesired）。
+  /// 顺序与手动操作一致：先把代理/TUN 状态落到 run 配置，再拉核心。
+  /// 任一步失败都不影响其余步骤或程序启动本身。
+  Future<void> _restoreLastSessionState() async {
+    final s = settings;
+    if (vpnMode) return; // Android VPN 模式不涉及桌面端这套开关
+    if (s.sysProxyDesired) {
+      try {
+        final already = await proxy.isEnabled();
+        if (!already) await enableSystemProxy();
+      } catch (_) {/* 忽略，不阻塞后续恢复 */}
+    }
+    if (s.coreRunningDesired && !coreRunning) {
+      try {
+        await startCore();
+      } catch (_) {/* 忽略，例如 TUN 需要提权时会走单独的提权重启流程 */}
+    }
   }
 
   Future<void> dispose() async {
@@ -262,6 +289,23 @@ class SmApp {
 
   Future<void> stopCore() => engine.stop();
 
+  /// 用户主动切换"启动核心"开关时调用：在 start/stop 基础上记录期望状态，
+  /// 供下次启动按持久化配置恢复。内部编排性质的启停（restartIfRunning、
+  /// applyNode、TUN/系统代理切换时的临时停启、程序退出时的收尾停核心）
+  /// 不应改变这个"用户意图"，因此不要在那些地方调用本方法，直接用
+  /// startCore()/stopCore()。
+  Future<void> startCoreUserRequested() async {
+    await startCore();
+    settings.coreRunningDesired = true;
+    cfgManager.save();
+  }
+
+  Future<void> stopCoreUserRequested() async {
+    await stopCore();
+    settings.coreRunningDesired = false;
+    cfgManager.save();
+  }
+
   ProcessStatus get coreStatus => engine.status;
   Stream<String> get coreLogLines => engine.logLines;
   Stream<ProcessStatus> get coreStatusChanges => engine.statusChanges;
@@ -388,6 +432,22 @@ class SmApp {
   }
 
   Future<bool> sysProxyEnabled() => proxy.isEnabled();
+
+  /// 用户主动切换"系统代理"开关时调用：在 enable/disable 基础上记录期望
+  /// 状态，供下次启动按持久化配置恢复。程序退出时因 exitDisableProxy 而
+  /// 自动关闭代理，不代表用户想下次也不开代理，因此那里不要调用本方法，
+  /// 直接用 disableSystemProxy()。
+  Future<void> enableSystemProxyUserRequested() async {
+    await enableSystemProxy();
+    settings.sysProxyDesired = true;
+    cfgManager.save();
+  }
+
+  Future<void> disableSystemProxyUserRequested() async {
+    await disableSystemProxy();
+    settings.sysProxyDesired = false;
+    cfgManager.save();
+  }
 
   // ─── 配置文件管理（configs 目录）───────────────────────────────────────────
 
@@ -799,10 +859,12 @@ class SmApp {
   }
 
   /// 提权重启后的新实例：消费恢复标记并恢复原有状态（一次性）。
-  Future<void> _restoreAfterElevation() async {
+  /// 返回 true 表示本次启动确实是提权重启（无论后续拉核心是否成功），
+  /// 调用方据此跳过一次性的 _restoreLastSessionState，避免重复启动核心。
+  Future<bool> _restoreAfterElevation() async {
     final markerPath = _join(dataDir, 'elevate.json');
     final marker = File(markerPath);
-    if (!marker.existsSync()) return; // 非提权重启，正常启动
+    if (!marker.existsSync()) return false; // 非提权重启，正常启动
     final data = await marker.readAsString();
     try {
       await marker.delete();
@@ -811,18 +873,19 @@ class SmApp {
     try {
       startCoreAfter = (jsonDecode(data) as Map)['start_core'] == true;
     } catch (_) {
-      return;
+      return true;
     }
-    if (!startCoreAfter) return;
-    if (!settings.tunEnabled) return;
+    if (!startCoreAfter) return true;
+    if (!settings.tunEnabled) return true;
     // 等旧实例完全退出、释放 TUN 网卡与端口后拉起核心（最多等 15 秒）
     for (var i = 0; i < 15; i++) {
       await Future<void>.delayed(const Duration(seconds: 1));
       try {
         await startCore();
-        return;
+        return true;
       } catch (_) {/* 重试 */}
     }
+    return true;
   }
 
   // ─── utils ─────────────────────────────────────────────────────────────────

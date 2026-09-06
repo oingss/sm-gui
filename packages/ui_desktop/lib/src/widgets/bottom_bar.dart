@@ -81,7 +81,9 @@ class BottomBar extends ConsumerWidget {
     final coreName = app.settings.core == coreMihomo ? 'mihomo' : 'sing-box';
     await runAction(
       context,
-      () => on ? app.startCore() : app.stopCore(),
+      () => on
+          ? app.startCoreUserRequested()
+          : app.stopCoreUserRequested(),
       successMsg: on ? '$coreName 已启动' : '$coreName 已停止',
       failurePrefix: on ? '启动失败' : '停止失败',
     );
@@ -91,7 +93,9 @@ class BottomBar extends ConsumerWidget {
       BuildContext context, WidgetRef ref, SmApp app, bool on) async {
     await runAction(
       context,
-      () => on ? app.enableSystemProxy() : app.disableSystemProxy(),
+      () => on
+          ? app.enableSystemProxyUserRequested()
+          : app.disableSystemProxyUserRequested(),
       successMsg: on
           ? '已启用系统代理 (${app.settings.proxyListen}:${app.settings.proxyPort})'
           : '已关闭系统代理',

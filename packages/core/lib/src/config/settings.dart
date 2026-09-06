@@ -200,6 +200,12 @@ class Settings {
   int proxyPort; // mixed inbound 监听端口
   bool exitDisableProxy; // 退出程序时自动关闭系统代理
 
+  // 底部栏三个开关的期望状态持久化（TUN 复用上面的 tunEnabled）：
+  // 记录"用户上一次主动设置的开关状态"，下次启动按此自动恢复，
+  // 与 exitDisableProxy 等运行期自动动作互不覆盖对方语义。
+  bool sysProxyDesired; // 系统代理：用户上一次主动开启/关闭的状态
+  bool coreRunningDesired; // 启动核心：用户上一次主动启动/停止的状态
+
   // TUN 模式
   String tunStack; // gvisor | system | mixed
   int tunMTU; // TUN 网卡 MTU
@@ -239,6 +245,8 @@ class Settings {
     this.proxyListen = '',
     this.proxyPort = 0,
     this.exitDisableProxy = false,
+    this.sysProxyDesired = false,
+    this.coreRunningDesired = false,
     this.tunStack = '',
     this.tunMTU = 0,
     this.tunStrictRoute = false,
@@ -266,6 +274,8 @@ class Settings {
         proxyListen: j['proxy_listen'] as String? ?? '',
         proxyPort: (j['proxy_port'] as num?)?.toInt() ?? 0,
         exitDisableProxy: j['exit_disable_proxy'] as bool? ?? false,
+        sysProxyDesired: j['sys_proxy_desired'] as bool? ?? false,
+        coreRunningDesired: j['core_running_desired'] as bool? ?? false,
         tunStack: j['tun_stack'] as String? ?? '',
         tunMTU: (j['tun_mtu'] as num?)?.toInt() ?? 0,
         tunStrictRoute: j['tun_strict_route'] as bool? ?? false,
@@ -299,6 +309,8 @@ class Settings {
         'proxy_listen': proxyListen,
         'proxy_port': proxyPort,
         'exit_disable_proxy': exitDisableProxy,
+        'sys_proxy_desired': sysProxyDesired,
+        'core_running_desired': coreRunningDesired,
         'tun_stack': tunStack,
         'tun_mtu': tunMTU,
         'tun_strict_route': tunStrictRoute,
