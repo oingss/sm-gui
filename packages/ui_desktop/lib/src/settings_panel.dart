@@ -349,22 +349,21 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                   _section('启动'),
                   _row('开机自启动', _check(_f.autoStart, (v) {
                     setState(() => _f.autoStart = v);
-                  }), hint: '以管理员身份运行时注册计划任务（开机后仍以管理员运行）；普通权限时写入注册表 Run 键'),
+                  })),
                   _row('静默启动', _check(_f.silentStart, (v) {
                     setState(() => _f.silentStart = v);
-                  }), hint: '仅开机自启动时生效：不显示主窗口，只保留任务栏托盘图标；手动启动不受影响'),
+                  })),
                   _section('内核'),
                   _row(
                     '代理内核',
                     _dropdown(_f.core, _cores, (v) => setState(() => _f.core = v)),
-                    hint: '切换后使用各自记忆的配置文件（configs 目录 json / yaml）',
                   ),
                   _section('订阅'),
                   _row('User-Agent', _text(_subUa, hint: 'clash.meta')),
-                  _row('请求超时', _num(_subTimeout), hint: '秒'),
+                  _row('请求超时', _num(_subTimeout)),
                   _section('日志与界面'),
                   _row('日志保留行数', _num(_logLines)),
-                  _row('状态轮询间隔', _num(_poll), hint: '毫秒'),
+                  _row('状态轮询间隔', _num(_poll)),
                 ],
                 if (_view == 'conf') ...[
                   _section('系统代理'),
@@ -376,19 +375,18 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                             : '127.0.0.1',
                         [for (final a in _listenAddrs) (a, a)],
                         (v) => setState(() => _f.proxyListen = v)),
-                    hint: '0.0.0.0 / :: 允许局域网访问',
                   ),
-                  _row('代理端口', _num(_proxyPort), hint: 'mixed inbound 监听端口'),
+                  _row('代理端口', _num(_proxyPort)),
                   _row('退出时关闭系统代理', _check(_f.exitDisableProxy, (v) {
                     setState(() => _f.exitDisableProxy = v);
-                  }), hint: '退出程序前自动还原系统代理设置'),
+                  })),
                   _section('TUN 模式'),
                   _row('协议栈', _dropdown(_f.tunStack, _tunStacks,
                       (v) => setState(() => _f.tunStack = v))),
                   _row('MTU', _num(_tunMtu)),
                   _row('strict_route', _check(_f.tunStrictRoute, (v) {
                     setState(() => _f.tunStrictRoute = v);
-                  }), hint: '严格路由，防止流量绕过 TUN（仅 sing-box 生效，mihomo 无此选项）'),
+                  })),
                   _section('生成配置（内置路由模式）'),
                   _row(
                     '日志等级',
@@ -400,15 +398,12 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                     'DNS 模式',
                     _dropdown(b.dnsMode, _dnsModes,
                         (v) => setState(() => b.dnsMode = v)),
-                    hint: 'fake-ip：fakeipfilter 白名单域名真实解析，其余返回假 IP',
                   ),
                   _row('IPv6', _check(b.ipv6, (v) {
                     setState(() => b.ipv6 = v);
-                  }), hint: 'mihomo 全局与 DNS 的 ipv6；sing-box 同步调整解析策略与 TUN 地址'),
-                  _row('解析 DNS 主', _text(_resolverDns, hint: '必须是 IP，如 223.5.5.5'),
-                      hint: '用于解析 DNS 服务器自身的域名（sing-box 取主；mihomo 对应 default-nameserver）'),
-                  _row('解析 DNS 备用', _text(_resolverDnsBackup, hint: '必须是 IP，如 119.29.29.29'),
-                      hint: '仅 mihomo 生效（default-nameserver 填主 + 备用两个）'),
+                  })),
+                  _row('解析 DNS 主', _text(_resolverDns, hint: '必须是 IP，如 223.5.5.5')),
+                  _row('解析 DNS 备用', _text(_resolverDnsBackup, hint: '必须是 IP，如 119.29.29.29')),
                   // sing-box DNS 服务器
                   _row('sing-box 直连 DNS', _sbDns(
                     type: b.singBoxDirect.type,
@@ -423,17 +418,16 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                     addr: _sbProxyAddr,
                     port: _sbProxyPort,
                     path: _sbProxyPath,
-                  ), hint: '直连与代理 DNS 自动携带 domain_resolver → 解析 DNS'),
+                  )),
                   // mihomo DNS
                   _row('mihomo 直连 DNS',
                       _twoFields(_mihomoDirect0, _mihomoDirect1)),
                   _row('mihomo 代理 DNS',
-                      _twoFields(_mihomoProxy0, _mihomoProxy1),
-                      hint: '生成时自动追加 #PROXY（查询经代理组出站）'),
+                      _twoFields(_mihomoProxy0, _mihomoProxy1)),
                   _section('clash-api'),
                   _row('启用 clash-api', _check(!b.clashAPIDisabled, (v) {
                     setState(() => b.clashAPIDisabled = !v);
-                  }), hint: '关闭后生成的配置完全不含 clash-api 字段'),
+                  })),
                   if (!b.clashAPIDisabled) ...[
                     _row(
                       '监听地址',
@@ -444,9 +438,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                           [for (final a in _clashApiListens) (a, a)],
                           (v) => setState(() => b.clashAPI.listen = v)),
                     ),
-                    _row('端口', _num(_clashPort),
-                        hint:
-                            '面板地址 http://${b.clashAPI.listen}:${b.clashAPI.port}/ui'),
+                    _row('端口', _num(_clashPort)),
                     _row('密码', _text(_clashSecret, hint: '留空表示无密码')),
                   ],
                 ],
@@ -530,7 +522,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                 fontWeight: FontWeight.w600)),
       );
 
-  Widget _row(String label, Widget child, {String? hint}) => Padding(
+  Widget _row(String label, Widget child) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -541,15 +533,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                   style: const TextStyle(
                       color: SmPalette.textMid, fontSize: 12)),
             ),
-            SizedBox(width: 220, child: child),
-            if (hint != null) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(hint,
-                    style: const TextStyle(
-                        color: SmPalette.textDim, fontSize: 11)),
-              ),
-            ],
+            Expanded(child: child),
           ],
         ),
       );
@@ -601,7 +585,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
       Row(
         children: [
           SizedBox(
-            width: 76,
+            width: 80,
             child: DropdownButtonFormField<String>(
               initialValue: type,
               isDense: true,
@@ -615,15 +599,19 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
             ),
           ),
           const SizedBox(width: 6),
+          // 地址：弹性占满剩余宽度（最短 160，避免被挤压不可见）
           Expanded(
-            child: TextField(
-              controller: addr,
-              decoration: const InputDecoration(hintText: '地址（必填）'),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 160),
+              child: TextField(
+                controller: addr,
+                decoration: const InputDecoration(hintText: '地址（必填）'),
+              ),
             ),
           ),
           const SizedBox(width: 6),
           SizedBox(
-            width: 64,
+            width: 90,
             child: TextField(
               controller: port,
               keyboardType: TextInputType.number,
@@ -633,7 +621,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
           ),
           const SizedBox(width: 6),
           SizedBox(
-            width: 90,
+            width: 130,
             child: TextField(
               controller: path,
               decoration: const InputDecoration(hintText: '路径'),
