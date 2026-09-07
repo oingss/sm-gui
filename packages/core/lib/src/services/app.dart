@@ -57,6 +57,35 @@ class SmApp {
   String get binDir => _join(_baseDir, 'bin');
   String get rulesDir => _join(runDir, 'rules');
 
+  /// 移动端专用：把打包进 Flutter assets 的规则文件（ruleset/srs、
+  /// ruleset/mrs）解压到 [rulesDir] 下。桌面端这些文件随安装包放在
+  /// 可执行文件旁边，不需要这一步；Android 沙盒环境下必须显式解压一次。
+  ///
+  /// [loadAsset] 由调用方（apps/mobile）用 `rootBundle.load` 实现，
+  /// 本包（sm_core）保持不依赖 Flutter；找不到对应 asset 时返回 null，
+  /// 该文件会被跳过（不阻塞其余文件的写入）。
+  /// 已存在且非空的文件不会被覆盖，避免每次启动都重复写盘。
+  Future<void> ensureRuleFiles(
+    Future<List<int>?> Function(String assetPath) loadAsset,
+  ) async {
+    final allTags = <String>{
+      for (final mode in [modeBypass, modeBlacklist, modeGlobal])
+        for (final dnsMode in [dnsModeFakeIP, dnsModeRedirHost])
+          ...builtinRuleFilesAll(mode, dnsMode),
+    };
+    for (final ext in ['srs', 'mrs']) {
+      final dir = Directory(_join(rulesDir, ext));
+      await dir.create(recursive: true);
+      for (final tag in allTags) {
+        final file = File(_join(dir.path, '$tag.$ext'));
+        if (await file.exists() && await file.length() > 0) continue;
+        final bytes = await loadAsset('ruleset/$ext/$tag.$ext');
+        if (bytes == null) continue; // 该模式/内核用不到这个文件，资源里没打包很正常
+        await file.writeAsBytes(bytes);
+      }
+    }
+  }
+
   SmApp({
     required this.dataDir,
     this.appRootDir,

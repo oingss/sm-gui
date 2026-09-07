@@ -136,4 +136,3 @@ jobs:
           tag_name: test
           name: test
           files: sm-gui-windows-x64.zip
-          generate_release_notes: true

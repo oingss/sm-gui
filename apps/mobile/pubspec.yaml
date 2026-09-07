@@ -30,3 +30,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # 内置路由模式（绕过大陆/GFW列表/全局代理）依赖的 sing-box(.srs)/mihomo(.mrs)
+  # 规则文件。桌面端这些文件随安装包放在可执行文件旁边；Android 沙盒环境下
+  # 必须声明成 Flutter asset（注意：assets 必须位于本包目录内，../ruleset
+  # 这种包外路径不会被 flutter build apk 打进 APK），由 SmApp 初始化时
+  # 解压到 runDir/rules/（见 packages/core/lib/src/services/app.dart
+  # 的 ensureRuleFiles）。文件由仓库根 ruleset/ 同步而来，更新规则时
+  # 两边都要同步。
+  assets:
+    - assets/ruleset/srs/
+    - assets/ruleset/mrs/

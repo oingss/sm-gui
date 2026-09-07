@@ -78,4 +78,3 @@ jobs:
           tag_name: test
           name: test
           files: dist/*.apk
-          generate_release_notes: true

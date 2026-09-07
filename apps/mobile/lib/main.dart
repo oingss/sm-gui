@@ -6,6 +6,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sm_core/sm_core.dart';
@@ -26,6 +27,17 @@ Future<void> main() async {
     vpnMode: true,
   );
   await app.init();
+  // 内置路由模式的规则文件（.srs/.mrs）：从 APK assets 解压到
+  // runDir/rules/{srs,mrs}（已存在且非空的文件跳过，不重复写盘）。
+  // 缺了这步，内置模式启动核心时 checkRuleFiles 会直接报缺少规则文件。
+  await app.ensureRuleFiles((assetPath) async {
+    try {
+      final data = await rootBundle.load('assets/$assetPath');
+      return data.buffer.asUint8List();
+    } catch (_) {
+      return null; // 该模式/内核用不到的文件没打包，跳过
+    }
+  });
   // 引擎：连接事件流并同步原生 VPN 运行状态（进程被杀后重启恢复显示），
   // 按新契约携带当前内核查询；注入 TUN 协议栈提供者（start 时传给原生）
   engine.stackProvider = () => app.settings.tunStack;
