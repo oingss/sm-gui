@@ -102,6 +102,8 @@ TransportConfig? _buildTransportFromVMessJson(String network, Map<String, dynami
         t.maxEarlyData = ed;
         t.earlyDataHeaderName = 'Sec-WebSocket-Protocol';
       }
+      // ed 也可能被机场拼进 path（"path=/vless-argo?ed=2560"）— 统一规整
+      normalizeWsEarlyData(t);
     case 'http':
     case 'httpupgrade':
       t.path = path;
@@ -623,6 +625,9 @@ TransportConfig? _buildTransportFromQuery(String network, Map<String, String> q)
         t.maxEarlyData = ed;
         t.earlyDataHeaderName = orDefault(q['eh'] ?? '', 'Sec-WebSocket-Protocol');
       }
+      // ed/eh 也可能被机场拼进 path 参数（"path=%2Fvless-argo%3Fed%3D2560"）—
+      // 提取为 maxEarlyData/earlyDataHeaderName 并清理 path（对齐 v2rayN 做法）
+      normalizeWsEarlyData(t);
     case 'xhttp':
       t.path = q['path'] ?? '';
       t.host = q['host'] ?? '';

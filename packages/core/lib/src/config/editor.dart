@@ -407,6 +407,9 @@ Map<String, dynamic>? buildTransport(TransportConfig? t) {
 
   switch (t.type) {
     case 'ws':
+      // 兜底：path 里嵌的 ed/eh 提取为 max_early_data/early_data_header_name
+      // 并清理 path —— sing-box 内核不识别 path 中的 "?ed="（对齐 v2rayN 做法）
+      normalizeWsEarlyData(t);
       if (t.path.isNotEmpty) {
         m['path'] = t.path;
       }

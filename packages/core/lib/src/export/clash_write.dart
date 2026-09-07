@@ -204,6 +204,8 @@ void _applyClashTransport(Map<String, dynamic> p, TransportConfig? t) {
   final opts = <String, dynamic>{};
   switch (t.type) {
     case 'ws':
+      // 兜底：path 里嵌的 ed/eh 提取为 max-early-data/early-data-header-name
+      normalizeWsEarlyData(t);
       if (t.path.isNotEmpty) opts['path'] = t.path;
       if (t.host.isNotEmpty) opts['headers'] = <String, dynamic>{'Host': t.host};
       if (t.maxEarlyData > 0) {

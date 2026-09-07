@@ -292,6 +292,8 @@ TransportConfig? _clashBuildTransport(String network, Map<String, dynamic> p) {
           t.earlyDataHeaderName =
               orDefault(_str(opts['early-data-header-name']), 'Sec-WebSocket-Protocol');
         }
+        // path 里可能嵌 "?ed=2560"（机场 clash 订阅常见）— 统一规整
+        normalizeWsEarlyData(t);
       }
     case 'http':
       final opts = p['h2-opts'];

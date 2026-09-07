@@ -4,6 +4,8 @@ library;
 import 'dart:convert';
 import 'dart:math';
 
+import '../models/node.dart';
+
 /// 解析失败（对应 Go 版的 error 返回值）。
 class ParseException implements Exception {
   final String message;
@@ -144,3 +146,46 @@ String queryUnescapeLenient(String s) {
 /// URI userinfo 段解码（Go 的 url.User.Username()/Password() 已是解码值）。
 /// 含 '%' 时再走一次宽容解码；失败原样返回。
 String decodeUserInfo(String s) => queryUnescapeLenient(s);
+
+/// 规整嵌在 ws path 里的 early-data 参数（对齐 v2rayN SingboxOutboundService
+/// 对生成 sing-box ws transport 的处理）。
+///
+/// 机场订阅常见写法是把 ed/eh 拼进 path，如 `/vless-argo?ed=2560` 或
+/// URI 中 `path=%2Fvless-argo%3Fed%3D2560`。sing-box / mihomo 内核只认
+/// 独立的 `max_early_data` / `early-data-header-name` 字段，path 里的
+/// `?ed=` 不会被识别 —— 既丢失 0-RTT，也会因服务器路径校验不过而无法连接。
+/// 此处把 `ed` / `eh` 从 path 中提取到字段并清理 path，幂等可重复调用。
+void normalizeWsEarlyData(TransportConfig t) {
+  if (t.type != 'ws' || t.path.isEmpty) return;
+  var touched = false;
+
+  final edRe = RegExp(r'[?&]ed=(\d+)');
+  final edMatch = edRe.firstMatch(t.path);
+  if (edMatch != null) {
+    final ed = int.tryParse(edMatch.group(1)!) ?? 0;
+    if (ed > 0 && t.maxEarlyData == 0) {
+      t.maxEarlyData = ed;
+      t.earlyDataHeaderName =
+          orDefault(t.earlyDataHeaderName, 'Sec-WebSocket-Protocol');
+    }
+    t.path = t.path.replaceAll(edRe, '');
+    touched = true;
+  }
+
+  final ehRe = RegExp(r'[?&]eh=([^&]+)');
+  final ehMatch = ehRe.firstMatch(t.path);
+  if (ehMatch != null) {
+    final eh = queryUnescapeLenient(ehMatch.group(1)!);
+    if (eh.isNotEmpty) t.earlyDataHeaderName = eh;
+    t.path = t.path.replaceAll(ehRe, '');
+    touched = true;
+  }
+
+  if (touched) {
+    var p = t.path.replaceFirst('?&', '?');
+    while (p.endsWith('?') || p.endsWith('&')) {
+      p = p.substring(0, p.length - 1);
+    }
+    t.path = p;
+  }
+}
