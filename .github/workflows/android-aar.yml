@@ -1,0 +1,134 @@
+# 单独构建 Go 绑定 AAR（libbox + mihomo 桥接，双内核绑定到同一个 Go 运行时）
+# 并发布到 GitHub Release，供「Build Android APK」workflow 直接下载复用，
+# 不必每次编译 APK 都重新跑一遍耗时的 gomobile bind。
+#
+# 触发方式：手动 workflow_dispatch，或改动到 Go 绑定源码
+# （apps/mobile/core/** 或本文件）时自动跑一次。
+name: Build AAR (libbox + mihomo bridge)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/core/**'
+      - '.github/workflows/android-aar.yml'
+
+# 发布到同一个 Release tag 时，若上一次还没跑完就又推送，避免并发冲突。
+concurrency:
+  group: android-aar-release
+  cancel-in-progress: false
+
+jobs:
+  build-aar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ~1.25.7
+
+      - name: Setup Java (Android 构建)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # gomobile bind -target android 需要 Android SDK/NDK，用 Flutter action
+      # 顺带装好的环境不含 NDK，改用官方 android-actions 装一份带 NDK 的 SDK。
+      - name: Setup Android SDK (含 NDK)
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager --install "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      # 双内核绑定到同一个 AAR（单 Go 运行时）：
+      #   - sing-box libbox：v1.12.14 官方源码直接绑定——但必须用官方指定的
+      #     sagernet/gomobile v0.1.8 fork（libbox 的 API 官方 gobind 绑不了，
+      #     会报 "no exported names"），参数对齐官方 build_libbox
+      #   - mihomo：自写桥（apps/mobile/core/mihomocore）
+      #   - -javapkg=io.nekohasekai：libbox → io.nekohasekai.libbox，
+      #     mihomocore → io.nekohasekai.mihomocore
+      - name: Build Go bindings AAR (libbox + mihomo bridge)
+        run: |
+          export PATH="${PATH}:$(go env GOPATH)/bin"
+          echo "Using NDK: ${ANDROID_NDK_HOME}"
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.8
+          gomobile init
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
+          cd apps/mobile/core
+          # 注意顺序：先 tidy 归一化，再 go get 补回 bind 流程所需的依赖
+          # （tidy 会剪掉模块源码未 import 的依赖，但 gomobile bind 生成的
+          # 代码 import sagernet/gomobile/bind，且临时 go.mod 依赖 go list -m all）
+          go mod tidy
+          go get github.com/sagernet/sing-box@v1.12.14
+          go get github.com/sagernet/gomobile@v0.1.8
+          # 构建 tags 打开的 sing-box 可选包（clash_api/quic/wireguard/tor 等）
+          # 也需要 go.sum 记录（tidy 不感知 build tags）
+          go get github.com/sagernet/sing-box/experimental/clashapi@v1.12.14 \
+                 github.com/sagernet/sing-box/dns/transport/quic@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/anytls@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/tuic@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/hysteria@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/hysteria2@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/shadowsocks@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/shadowtls@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/tor@v1.12.14 \
+                 github.com/sagernet/sing-box/protocol/wireguard@v1.12.14 \
+                 github.com/sagernet/sing-box/transport/wireguard@v1.12.14 \
+                 github.com/sagernet/sing-box/service/resolved@v1.12.14
+          # -checklinkname=0：libbox/pidfd_android.go 用 //go:linkname 引用
+          # os.checkPidfdOnce（修旧版 Android seccomp pidfd 崩溃，sing-box#3233），
+          # Go 1.25 链接器的 linkname 白名单会拦截并报
+          # "invalid reference to os.checkPidfdOnce"（sing-box#3260），
+          # 官方解法即关闭该检查
+          gomobile bind -v -target android -androidapi 21 -javapkg=io.nekohasekai \
+            -trimpath -buildvcs=false \
+            -ldflags="-checklinkname=0" \
+            -tags "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_conntrack" \
+            -o "${GITHUB_WORKSPACE}/dist/libgo.aar" \
+            ./mihomocore github.com/sagernet/sing-box/experimental/libbox
+          ls -la "${GITHUB_WORKSPACE}/dist/"
+
+      # 记录来源信息，方便「Build Android APK」workflow 核对拿到的 AAR
+      # 是哪次 commit、哪次 run 产出的（AAR 本身不含版本元数据）。
+      - name: Write build info
+        run: |
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_number=${GITHUB_RUN_NUMBER}"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > dist/aar-build-info.txt
+          cat dist/aar-build-info.txt
+
+      - name: Upload artifact (workflow 产物，90 天保留)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sm-gui-android-aar
+          path: |
+            dist/libgo.aar
+            dist/aar-build-info.txt
+
+      # 发布到固定 tag 的 Release（对齐 win.yml 的约定：滚动 "aar-latest" 而非
+      # 每次都打版本号标签），供 android.yml 直接按固定 URL 下载，
+      # 不依赖 workflow-artifact 的 90 天过期时间。
+      - name: Publish AAR to Release (aar-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: aar-latest
+          name: Android AAR (libbox + mihomo bridge) — 自动构建
+          body: |
+            由 [Build AAR workflow](../../actions/workflows/android-aar.yml) 自动构建并发布，
+            供 Build Android APK workflow 下载复用，请勿手动编辑。
+
+            - commit: ${{ github.sha }}
+            - run: ${{ github.run_id }}
+          files: |
+            dist/libgo.aar
+            dist/aar-build-info.txt
