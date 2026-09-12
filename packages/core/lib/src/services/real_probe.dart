@@ -3,8 +3,9 @@
 /// 参考 v2rayN 的做法：为被测节点生成一份临时 sing-box 配置
 /// （mixed inbound 监听随机端口 + 节点 outbound），拉起独立 sing-box 进程，
 /// 通过该本地代理发起真实 HTTP 请求，测完立即杀进程并清理临时目录。
-/// 延迟 = 经代理完整请求 generate_204 的耗时；速度 = 经代理下载固定大小
-/// 文件的吞吐（Mbps，最长 10 秒）。
+/// 延迟对齐 v2rayN GetRealPingTime：同一客户端连测 2 次 generate_204
+/// （首次含建链/TLS 握手开销，第二次复用已建立的连接），取最小值；
+/// 速度 = 经代理下载固定大小文件的吞吐（Mbps，最长 10 秒）。
 library;
 
 import 'dart:async';
@@ -15,28 +16,48 @@ import '../config/editor.dart';
 import '../models/node.dart';
 import 'app.dart' show AppException;
 
-const String _latencyURL = 'http://www.gstatic.com/generate_204';
+const String _latencyURL = 'https://www.gstatic.com/generate_204';
 const String _speedURL =
     'https://speed.cloudflare.com/__down?bytes=26214400'; // 25 MB
 
 /// 测量节点真连接延迟（毫秒）。节点不可达 / 超时抛 [AppException]。
+///
+/// 对齐 v2rayN GetRealPingTime：同一 HttpClient 连测 2 次，取最小值。
+/// 首次请求包含经代理建链 + TLS 握手的冷启动开销，第二次复用已建立的
+/// 连接；v2rayN 也取两者较小值，因此冷启动开销不会虚高延迟数值。
 Future<int> testLatencyReal(String coreBin, Node n) async {
   final instance = await _startTestInstance(coreBin, n);
   try {
-    final client = _proxyClient(instance.port, const Duration(seconds: 5));
-    final start = DateTime.now();
-    final HttpClientResponse resp;
+    final client = _proxyClient(instance.port, const Duration(seconds: 3));
     try {
-      final req = await client.getUrl(Uri.parse(_latencyURL));
-      resp = await req.close();
-    } catch (e) {
-      throw AppException('连接失败: $e');
+      final times = <int>[];
+      for (var i = 0; i < 2; i++) {
+        final sw = Stopwatch()..start();
+        final HttpClientResponse resp;
+        try {
+          resp = await client
+              .getUrl(Uri.parse(_latencyURL))
+              .then((r) => r.close())
+              .timeout(const Duration(seconds: 9));
+        } on TimeoutException {
+          throw AppException('连接失败: 请求超时');
+        } catch (e) {
+          throw AppException('连接失败: $e');
+        }
+        await resp.listen((_) {}).asFuture<void>();
+        sw.stop();
+        if (resp.statusCode < 200 || resp.statusCode > 399) {
+          throw AppException('HTTP ${resp.statusCode}');
+        }
+        times.add(sw.elapsedMilliseconds);
+        if (i == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+      return times.reduce((a, b) => a < b ? a : b);
+    } finally {
+      client.close(force: true);
     }
-    await resp.listen((_) {}).asFuture<void>();
-    if (resp.statusCode < 200 || resp.statusCode > 399) {
-      throw AppException('HTTP ${resp.statusCode}');
-    }
-    return DateTime.now().difference(start).inMilliseconds;
   } finally {
     await instance.stop();
   }

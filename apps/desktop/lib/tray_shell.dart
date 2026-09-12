@@ -73,6 +73,10 @@ class DesktopShell with WindowListener, TrayListener {
       if (!silent) {
         await windowManager.show();
         await windowManager.focus();
+      } else {
+        // 双保险：原生 runner 已按 --silent 跳过首帧 Show()，
+        // 这里再显式隐藏一次，确保窗口不出现（仅托盘）。
+        await windowManager.hide();
       }
     });
     windowManager.addListener(this);

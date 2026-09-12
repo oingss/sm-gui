@@ -27,8 +27,12 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // 静默启动（`--silent`）时不显示：窗口保持隐藏，仅托盘；
+  // 由 Dart 侧（window_manager.show）在用户从托盘唤起时再显示。
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    if (show_on_start_) {
+      this->Show();
+    }
   });
 
   // Flutter can complete the first frame before the "show window" callback is
