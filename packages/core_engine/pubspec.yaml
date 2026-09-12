@@ -1,0 +1,13 @@
+name: sm_engine
+description: >-
+  SM GUI 引擎层：内核进程管理（sing-box/mihomo）、引擎控制抽象、
+  Windows 系统代理。桌面端实现；移动端（libbox/VpnService）二期接入。
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

@@ -1,0 +1,41 @@
+name: sm_mobile
+description: SM GUI 移动端（Flutter / Android）：VpnEngine 桥接 + sm_core + ui_mobile。
+publish_to: 'none'
+resolution: workspace
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  path_provider: ^2.1.4
+  sqlite3_flutter_libs: ^0.5.24
+  sm_core:
+    path: ../../packages/core
+  sm_engine:
+    path: ../../packages/core_engine
+  ui_kit:
+    path: ../../packages/ui_kit
+  ui_mobile:
+    path: ../../packages/ui_mobile
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  # 内置路由模式（绕过大陆/GFW列表/全局代理）依赖的 sing-box(.srs)/mihomo(.mrs)
+  # 规则文件（仓库唯一来源，桌面端打包也从此目录复制）。Android 沙盒环境下
+  # 必须声明成 Flutter asset（注意：assets 必须位于本包目录内，../ruleset
+  # 这种包外路径不会被 flutter build apk 打进 APK），由 SmApp 初始化时
+  # 解压到 runDir/rules/（见 packages/core/lib/src/services/app.dart
+  # 的 ensureRuleFiles）。
+  assets:
+    - assets/ruleset/srs/
+    - assets/ruleset/mrs/

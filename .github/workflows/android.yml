@@ -1,0 +1,80 @@
+# 只编译安卓 APK：用「Build AAR (libbox + mihomo bridge)」workflow 已经发布到
+# aar-latest Release 的 libgo.aar，不在这里重新跑一遍耗时的 gomobile bind。
+#
+# 如果需要先重新生成 AAR，手动跑一次 android-aar.yml（会自动更新 aar-latest
+# Release），再跑本 workflow。
+name: Build android
+
+on:
+  workflow_dispatch:
+    inputs:
+      aar_tag:
+        description: '从哪个 Release tag 下载 libgo.aar'
+        required: false
+        default: aar-latest
+        type: string
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java (Android 构建)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.35.3
+          cache: true
+
+      # 从「Build AAR」workflow 发布的 Release 里下载已经编译好的 libgo.aar，
+      # 放到 Android 项目期望的位置（apps/mobile/android/app/libs/）。
+      - name: Download prebuilt AAR from Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AAR_TAG: ${{ inputs.aar_tag || 'aar-latest' }}
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/apps/mobile/android/app/libs"
+          echo "Downloading libgo.aar from release tag: ${AAR_TAG}"
+          gh release download "${AAR_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "libgo.aar" \
+            --pattern "aar-build-info.txt" \
+            --dir "${GITHUB_WORKSPACE}/apps/mobile/android/app/libs" \
+            --clobber
+          echo "--- AAR 来源信息 ---"
+          cat "${GITHUB_WORKSPACE}/apps/mobile/android/app/libs/aar-build-info.txt" || true
+          ls -la "${GITHUB_WORKSPACE}/apps/mobile/android/app/libs/"
+
+      - name: Pub get (workspace)
+        run: flutter pub get
+
+      - name: Build Android APKs (split per ABI)
+        run: flutter build apk --release --split-per-abi
+        working-directory: apps/mobile
+
+      - name: Package APKs
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp apps/mobile/build/app/outputs/flutter-apk/*-release*.apk dist/
+          ls -la dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sm-gui-android
+          path: dist/*.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test
+          name: test
+          files: dist/*.apk
