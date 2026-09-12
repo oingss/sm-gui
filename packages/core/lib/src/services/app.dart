@@ -16,6 +16,7 @@ import '../config/settings_manager.dart';
 import '../export/node_export.dart' show nodeToUri;
 import '../models/group.dart';
 import '../models/node.dart';
+import '../parsing/common.dart' show newUuid;
 import '../parsing/content.dart';
 import '../storage/store.dart';
 import 'probe.dart';
@@ -693,6 +694,15 @@ class SmApp {
     }
     store.addMany(parsed);
     return parsed.length;
+  }
+
+  /// 新增（手动添加）一个节点：id 为空时自动生成；分组为空或无效时
+  /// 归入默认分组。返回补全 id/分组后的节点。
+  Node addNode(Node n) {
+    if (n.id.isEmpty) n.id = newUuid();
+    n.groupId = store.groupIDValid(n.groupId);
+    store.addMany([n]);
+    return n;
   }
 
   void updateNode(Node n) => store.update(n);

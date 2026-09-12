@@ -16,6 +16,13 @@ const _supported = [
   'tuic', 'socks', 'http', 'anytls', 'ssr', 'wireguard',
 ];
 
+/// 「添加节点」菜单的协议顺序（对齐 v2rayN，含 sm-gui 同样支持的
+/// hysteria/ssr）。
+const addableProtocols = [
+  'vmess', 'vless', 'ss', 'trojan', 'hysteria2', 'hysteria',
+  'wireguard', 'socks', 'http', 'tuic', 'anytls', 'ssr',
+];
+
 const _transportTypes = [
   ('', '无 (TCP / RAW)'),
   ('ws', 'ws (WebSocket)'),
@@ -37,7 +44,11 @@ const _xhttpModes = ['auto', 'packet-up', 'stream-up', 'stream-one'];
 class EditNodeModal extends ConsumerStatefulWidget {
   final Node node;
 
-  const EditNodeModal({super.key, required this.node});
+  /// true = 新建模式：保存时入库新增（自动生成 id/归组），
+  /// false = 编辑模式：按原 id 更新。
+  final bool isNew;
+
+  const EditNodeModal({super.key, required this.node, this.isNew = false});
 
   @override
   ConsumerState<EditNodeModal> createState() => _EditNodeModalState();
@@ -269,7 +280,12 @@ class _EditNodeModalState extends ConsumerState<EditNodeModal> {
         out.rawClashProxy = null;
       }
 
-      app.updateNode(out);
+      if (widget.isNew) {
+        // 新建：入库新增（补全 id 与归属分组）
+        app.addNode(out);
+      } else {
+        app.updateNode(out);
+      }
       if (mounted) {
         AppToast.show(context, '节点已保存', ToastType.success);
         Navigator.of(context).pop();

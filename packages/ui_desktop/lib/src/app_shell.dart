@@ -5,9 +5,11 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sm_core/sm_core.dart';
 import 'package:sm_engine/sm_engine.dart';
 import 'package:ui_kit/ui_kit.dart';
 
+import 'modals/edit_node_modal.dart';
 import 'modals/import_modal.dart';
 import 'modals/subscription_modal.dart';
 import 'providers.dart';
@@ -111,6 +113,10 @@ class _TitleBar extends StatelessWidget {
       child: Row(
         children: [
           // Tab 胶囊组
+          if (tab == 'nodes') ...[
+            const _AddNodeButton(),
+            const SizedBox(width: 8),
+          ],
           Container(
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
@@ -178,6 +184,85 @@ class _TitleBar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 「添加」按钮 — 对齐 v2rayN：点击弹出协议类型菜单，选择后打开
+/// 新建节点编辑弹窗（保存时入库新增，归入当前视图分组）。
+class _AddNodeButton extends ConsumerWidget {
+  const _AddNodeButton();
+
+  Future<void> _showAddMenu(BuildContext context, WidgetRef ref) async {
+    final box = context.findRenderObject() as RenderBox;
+    // 菜单贴着按钮下缘展开
+    final pos = box.localToGlobal(Offset(0, box.size.height + 4));
+    final picked = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
+      color: SmPalette.bgPanel,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: SmPalette.border),
+      ),
+      items: [
+        for (final p in addableProtocols)
+          PopupMenuItem<String>(
+            value: p,
+            height: 34,
+            child: Text(
+              '添加 [${protocolDisplayName(p)}]',
+              style: const TextStyle(
+                color: SmPalette.text,
+                fontSize: 12,
+                fontFamily: 'Consolas',
+              ),
+            ),
+          ),
+      ],
+    );
+    if (picked == null || !context.mounted) return;
+    // 归入当前视图分组（对齐 v2rayN：新节点进当前选中的分组）
+    final groupId = ref.read(activeGroupIdProvider);
+    AppModal.show<void>(
+      context,
+      title: '添加节点 — ${protocolDisplayName(picked)}',
+      width: 620,
+      builder: (_) => EditNodeModal(
+        node: Node(id: '', protocol: picked, groupId: groupId),
+        isNew: true,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return InkWell(
+      onTap: () => _showAddMenu(context, ref),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: SmPalette.bgInput,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: SmPalette.border),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add, size: 14, color: SmPalette.accent),
+            SizedBox(width: 3),
+            Text(
+              '添加',
+              style: TextStyle(
+                color: SmPalette.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
